@@ -19,5 +19,7 @@
     "baseUrl": "https://mockup-production-b892.up.railway.app"
   },
   "debug": true,
-  "layerNames": ["Design Placeholder", "Design", "YOUR DESIGN", "YOUR DESIGN HERE", "DESIGN", "DESIGN HERE", "place-design", "design-placeholder"]
+  "layerNames": ["Design Placeholder", "Design", "YOUR DESIGN", "YOUR DESIGN HERE", "DESIGN", "DESIGN HERE", "place-design", "design-placeholder"],
+  "defaultMode": "photopea",
+  "forcePsdTemplate": true
 } 

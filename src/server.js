@@ -33,10 +33,12 @@ const BASE_URL = process.env.BASE_URL || config.serviceSettings?.baseUrl || `htt
 const PUBLIC_PATH = process.env.PUBLIC_PATH || '/mockups';
 const IS_RAILWAY = process.env.RAILWAY_STATIC_URL || process.env.RAILWAY_SERVICE_NAME || false;
 
-// Template configuration with precedence for environment variables over config.json
+// Find template configuration
 const USE_REMOTE_TEMPLATES = !!(process.env.PSD_TEMPLATE_URL || config.templateSettings?.psdTemplateUrl);
 const PSD_TEMPLATE_URL = process.env.PSD_TEMPLATE_URL || config.templateSettings?.psdTemplateUrl;
 const DESIGN_PLACEHOLDER_NAME = process.env.DESIGN_PLACEHOLDER_NAME || config.templateSettings?.designPlaceholderName || 'Design';
+const DEFAULT_MODE = process.env.DEFAULT_MODE || config.defaultMode || 'photopea';
+const FORCE_PSD_TEMPLATE = process.env.FORCE_PSD_TEMPLATE === 'true' || config.forcePsdTemplate === true;
 
 // Layer names to try when looking for the design placeholder layer
 const LAYER_NAMES = config.layerNames || ["Design Placeholder", "Design", "YOUR DESIGN", "YOUR DESIGN HERE", "DESIGN", "DESIGN HERE", "place-design", "design-placeholder"];
@@ -142,6 +144,13 @@ async function findTemplateForSku(sku) {
   console.log(`Finding template for SKU: ${sku}`);
   console.log(`Using PSD_TEMPLATE_URL: ${PSD_TEMPLATE_URL}`);
   console.log(`Remote templates enabled: ${USE_REMOTE_TEMPLATES}`);
+  console.log(`Force PSD template: ${FORCE_PSD_TEMPLATE}`);
+  
+  // If we're forcing PSD templates and have a URL, skip local checks
+  if (FORCE_PSD_TEMPLATE && USE_REMOTE_TEMPLATES && PSD_TEMPLATE_URL) {
+    console.log('Forcing PSD template from remote source');
+    return await downloadPsdTemplate(sku);
+  }
   
   // First check local templates - faster than remote retrieval
   const templateFormats = ['.psd', '.png', '.jpg', '.jpeg'];
@@ -166,97 +175,106 @@ async function findTemplateForSku(sku) {
   
   // If remote templates are enabled and no local template was found, try to download
   if (USE_REMOTE_TEMPLATES && PSD_TEMPLATE_URL) {
-    try {
-      console.log(`Attempting to download template from remote source: ${PSD_TEMPLATE_URL}`);
-      
-      // Check if PSD_TEMPLATE_URL is a direct file URL or a base directory
-      const isDirectPsdUrl = PSD_TEMPLATE_URL.toLowerCase().endsWith('.psd');
-      console.log(`Direct PSD URL: ${isDirectPsdUrl}`);
-      
-      if (isDirectPsdUrl) {
-        // Direct URL to a PSD file - use for all SKUs
-        const remoteTemplatePath = path.join(TEMP_DIR, `template-${sku}.psd`);
-        
-        try {
-          console.log(`Downloading template from ${PSD_TEMPLATE_URL} to ${remoteTemplatePath}`);
-          
-          const response = await axios.get(PSD_TEMPLATE_URL, { 
-            responseType: 'arraybuffer',
-            timeout: 15000 // 15 second timeout
-          });
-          
-          console.log(`Download complete: ${response.status}, data size: ${response.data.length} bytes`);
-          
-          fs.writeFileSync(remoteTemplatePath, response.data);
-          console.log(`Downloaded template from ${PSD_TEMPLATE_URL}`);
-          
-          // Verify the template was saved correctly
-          if (fs.existsSync(remoteTemplatePath)) {
-            const stats = fs.statSync(remoteTemplatePath);
-            console.log(`Template saved, size: ${stats.size} bytes`);
-            
-            // Check if file has PSD signature
-            const isPsd = isPsdFile(remoteTemplatePath);
-            console.log(`File check: isPSD=${isPsd}`);
-            
-            if (stats.size > 0) {
-              return remoteTemplatePath;
-            } else {
-              console.error(`Downloaded template file is empty: ${remoteTemplatePath}`);
-              return null;
-            }
-          } else {
-            console.error(`Failed to save template to: ${remoteTemplatePath}`);
-            return null;
-          }
-        } catch (error) {
-          console.error(`Error downloading template: ${error.message}`);
-          if (error.response) {
-            console.error(`Response status: ${error.response.status}`);
-            console.error(`Response headers:`, error.response.headers);
-          }
-          return null;
-        }
-      } else {
-        // Base URL - try SKU-specific and default templates
-        // Try to download SKU-specific template
-        const remoteTemplatePath = path.join(TEMP_DIR, `${sku}.psd`);
-        const remoteTemplateUrl = `${PSD_TEMPLATE_URL}/${sku}.psd`;
-        
-        try {
-          console.log(`Trying to download SKU-specific template from: ${remoteTemplateUrl}`);
-          const response = await axios.get(remoteTemplateUrl, { responseType: 'arraybuffer' });
-          fs.writeFileSync(remoteTemplatePath, response.data);
-          console.log(`Downloaded template from ${remoteTemplateUrl}`);
-          return remoteTemplatePath;
-        } catch (error) {
-          console.log(`No SKU-specific template found at ${remoteTemplateUrl}, trying default`);
-          
-          // Try to download default template
-          const defaultTemplatePath = path.join(TEMP_DIR, `default.psd`);
-          const defaultTemplateUrl = `${PSD_TEMPLATE_URL}/default.psd`;
-          
-          try {
-            console.log(`Trying to download default template from: ${defaultTemplateUrl}`);
-            const response = await axios.get(defaultTemplateUrl, { responseType: 'arraybuffer' });
-            fs.writeFileSync(defaultTemplatePath, response.data);
-            console.log(`Downloaded default template from ${defaultTemplateUrl}`);
-            return defaultTemplatePath;
-          } catch (defaultError) {
-            console.log(`No default template found at ${defaultTemplateUrl}`);
-            return null;
-          }
-        }
-      }
-    } catch (error) {
-      console.error(`Error downloading remote template: ${error.message}`);
-      return null;
-    }
+    return await downloadPsdTemplate(sku);
   }
   
   // No template found
   console.log('No template found after exhausting all options');
   return null;
+}
+
+/**
+ * Download a PSD template from the remote source
+ * @param {string} sku - The product SKU
+ * @returns {Promise<string|null>} - Path to the downloaded template or null if failed
+ */
+async function downloadPsdTemplate(sku) {
+  try {
+    console.log(`Attempting to download template from remote source: ${PSD_TEMPLATE_URL}`);
+    
+    // Check if PSD_TEMPLATE_URL is a direct file URL or a base directory
+    const isDirectPsdUrl = PSD_TEMPLATE_URL.toLowerCase().endsWith('.psd');
+    console.log(`Direct PSD URL: ${isDirectPsdUrl}`);
+    
+    if (isDirectPsdUrl) {
+      // Direct URL to a PSD file - use for all SKUs
+      const remoteTemplatePath = path.join(TEMP_DIR, `template-${sku}.psd`);
+      
+      try {
+        console.log(`Downloading template from ${PSD_TEMPLATE_URL} to ${remoteTemplatePath}`);
+        
+        const response = await axios.get(PSD_TEMPLATE_URL, { 
+          responseType: 'arraybuffer',
+          timeout: 15000 // 15 second timeout
+        });
+        
+        console.log(`Download complete: ${response.status}, data size: ${response.data.length} bytes`);
+        
+        fs.writeFileSync(remoteTemplatePath, response.data);
+        console.log(`Downloaded template from ${PSD_TEMPLATE_URL}`);
+        
+        // Verify the template was saved correctly
+        if (fs.existsSync(remoteTemplatePath)) {
+          const stats = fs.statSync(remoteTemplatePath);
+          console.log(`Template saved, size: ${stats.size} bytes`);
+          
+          // Check if file has PSD signature
+          const isPsd = isPsdFile(remoteTemplatePath);
+          console.log(`File check: isPSD=${isPsd}`);
+          
+          if (stats.size > 0) {
+            return remoteTemplatePath;
+          } else {
+            console.error(`Downloaded template file is empty: ${remoteTemplatePath}`);
+            return null;
+          }
+        } else {
+          console.error(`Failed to save template to: ${remoteTemplatePath}`);
+          return null;
+        }
+      } catch (error) {
+        console.error(`Error downloading template: ${error.message}`);
+        if (error.response) {
+          console.error(`Response status: ${error.response.status}`);
+          console.error(`Response headers:`, error.response.headers);
+        }
+        return null;
+      }
+    } else {
+      // Base URL - try SKU-specific and default templates
+      // Try to download SKU-specific template
+      const remoteTemplatePath = path.join(TEMP_DIR, `${sku}.psd`);
+      const remoteTemplateUrl = `${PSD_TEMPLATE_URL}/${sku}.psd`;
+      
+      try {
+        console.log(`Trying to download SKU-specific template from: ${remoteTemplateUrl}`);
+        const response = await axios.get(remoteTemplateUrl, { responseType: 'arraybuffer' });
+        fs.writeFileSync(remoteTemplatePath, response.data);
+        console.log(`Downloaded template from ${remoteTemplateUrl}`);
+        return remoteTemplatePath;
+      } catch (error) {
+        console.log(`No SKU-specific template found at ${remoteTemplateUrl}, trying default`);
+        
+        // Try to download default template
+        const defaultTemplatePath = path.join(TEMP_DIR, `default.psd`);
+        const defaultTemplateUrl = `${PSD_TEMPLATE_URL}/default.psd`;
+        
+        try {
+          console.log(`Trying to download default template from: ${defaultTemplateUrl}`);
+          const response = await axios.get(defaultTemplateUrl, { responseType: 'arraybuffer' });
+          fs.writeFileSync(defaultTemplatePath, response.data);
+          console.log(`Downloaded default template from ${defaultTemplateUrl}`);
+          return defaultTemplatePath;
+        } catch (defaultError) {
+          console.log(`No default template found at ${defaultTemplateUrl}`);
+          return null;
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`Error downloading remote template: ${error.message}`);
+    return null;
+  }
 }
 
 /**
@@ -514,9 +532,9 @@ app.post("/render-mockup", async (req, res) => {
       });
     }
     
-    // Determine processing mode (default to 'photopea' for best results)
+    // Determine processing mode (default from config for best results)
     // Only fall back to 'auto' if explicitly requested
-    const processingMode = mode || 'photopea';
+    const processingMode = mode || DEFAULT_MODE;
     console.log(`Mockup request: design=${designId}, sku=${sku}, mode=${processingMode}`);
     
     // Find the best template for this SKU
