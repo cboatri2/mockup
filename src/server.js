@@ -36,9 +36,13 @@ if (!fs.existsSync(TEMP_DIR)) {
   console.log(`Created temp directory: ${TEMP_DIR}`);
 }
 
+// Get the allowed origin from environment variable or allow all in development
+const corsOrigin = process.env.CORS_ORIGIN || '*';
+console.log(`CORS Origin: ${corsOrigin}`);
+
 // Basic middleware
 app.use(cors({
-  origin: '*', // Allow all origins for testing
+  origin: corsOrigin,
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
