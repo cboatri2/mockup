@@ -1,5 +1,7 @@
 const express = require("express");
 const cors = require("cors");
+const fs = require("fs");
+const path = require("path");
 require("dotenv").config();
 const { generateMockup } = require('./image-processor');
 
@@ -9,6 +11,26 @@ const PORT = process.env.PORT || 3000;
 // IMPORTANT: Force test mode to false for production
 const TEST_MODE = false;
 
+// Setup directories
+const TEMPLATES_DIR = path.join(__dirname, '..', 'assets', 'templates');
+const TEMP_DIR = path.join(__dirname, '..', 'temp');
+
+// Ensure directories exist
+function ensureDirectoriesExist() {
+  try {
+    [TEMPLATES_DIR, TEMP_DIR].forEach(dir => {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+        console.log(`Created directory: ${dir}`);
+      }
+    });
+  } catch (error) {
+    console.error(`Error creating directories:`, error);
+    // Continue execution even if directory creation fails
+  }
+}
+
+// Initialize app
 const app = express();
 
 // Middleware
@@ -63,25 +85,59 @@ app.post("/render-mockup", async (req, res) => {
       });
     } catch (processingError) {
       console.error('Error in mockup generation:', processingError);
-      return res.status(500).json({
-        success: false,
-        error: 'Mockup generation failed: ' + processingError.message
+      
+      // In case of error, return the original image as the mockup
+      // This prevents the UI from breaking while we diagnose issues
+      return res.json({
+        success: true,
+        mockupUrl: imageUrl,
+        designId,
+        sku,
+        error: processingError.message,
+        errorFallback: true
       });
     }
     
   } catch (error) {
     console.error("Error:", error);
-    res.status(500).json({ 
+    
+    // Return a 200 response with error info instead of 500
+    // This way the UI can still function with the original image
+    res.json({ 
       success: false, 
-      error: error.message || "Internal server error"
+      error: error.message || "Internal server error",
+      // Include the original image URL as a fallback
+      mockupUrl: req.body?.imageUrl || null
     });
   }
 });
 
+// Create necessary directories before starting the server
+ensureDirectoriesExist();
+
 // Start the server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`======================================`);
   console.log(`PSD Mockup Service running on port ${PORT}`);
   console.log(`TEST MODE: ${TEST_MODE ? 'ENABLED' : 'DISABLED'}`);
+  console.log(`TEMPLATES DIR: ${TEMPLATES_DIR}`);
+  console.log(`TEMP DIR: ${TEMP_DIR}`);
   console.log(`======================================`);
+});
+
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
 });

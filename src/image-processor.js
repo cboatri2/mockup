@@ -267,13 +267,26 @@ async function generateMockup(params) {
     }
     
     // Get template file based on SKU
-    const templatePath = path.join(TEMPLATES_DIR, `${sku}.psd`);
+    let templatePath = path.join(TEMPLATES_DIR, `${sku}.psd`);
     
     // Check if template exists, if not use a default
     const templateExists = fs.existsSync(templatePath);
-    const finalTemplatePath = templateExists ? 
-      templatePath : 
-      path.join(TEMPLATES_DIR, 'default.psd');
+    let finalTemplatePath;
+    
+    if (templateExists) {
+      finalTemplatePath = templatePath;
+    } else {
+      // Look for default.psd
+      const defaultPath = path.join(TEMPLATES_DIR, 'default.psd');
+      if (fs.existsSync(defaultPath)) {
+        console.log(`No template found for SKU ${sku}, using default template`);
+        finalTemplatePath = defaultPath;
+      } else {
+        // No PSD template available, generate a mockup directly from the design image
+        console.log(`No templates available. Generating basic mockup from design image.`);
+        return generateBasicMockup(designImagePath, designId, sku);
+      }
+    }
     
     // Try to generate with PSD.js first
     let mockupImagePath = null;
@@ -281,19 +294,25 @@ async function generateMockup(params) {
       mockupImagePath = await generateMockupWithPsdJs(finalTemplatePath, designImagePath);
     } catch (psdJsError) {
       console.warn('PSD.js processing failed, falling back to Photopea:', psdJsError.message);
-      mockupImagePath = await generateMockupWithPhotopea(finalTemplatePath, designImagePath);
+      try {
+        mockupImagePath = await generateMockupWithPhotopea(finalTemplatePath, designImagePath);
+      } catch (photopeaError) {
+        console.error('Photopea processing also failed:', photopeaError.message);
+        // If all processing methods fail, just use the basic mockup
+        return generateBasicMockup(designImagePath, designId, sku);
+      }
     }
     
     console.log(`Mockup generated at ${mockupImagePath}`);
     
     // Upload to Vercel Blob
     const mockupFile = fs.readFileSync(mockupImagePath);
-    const blobName = `mockups/${sku}/${designId}-${Date.now()}.png`;
+    const blobName = `mockups/${sku}/${designId}.jpg`;
     
     console.log(`Uploading mockup to blob storage: ${blobName}`);
     const blob = await put(blobName, mockupFile, {
       access: 'public',
-      contentType: 'image/png'
+      contentType: 'image/jpeg'
     });
     
     const uploadedUrl = blob.url;
@@ -305,8 +324,73 @@ async function generateMockup(params) {
     throw error;
   } finally {
     // Clean up temporary files
-    const filesToCleanup = [designImagePath, mockupImagePath].filter(Boolean);
-    cleanupFiles(filesToCleanup);
+    try {
+      const filesToCleanup = [designImagePath, mockupImagePath].filter(Boolean);
+      await cleanupFiles(filesToCleanup);
+    } catch (cleanupError) {
+      console.warn('Error during cleanup:', cleanupError);
+    }
+  }
+}
+
+/**
+ * Generate a basic mockup when no templates are available
+ * @param {string} designImagePath - Path to the design image
+ * @param {string} designId - The design ID
+ * @param {string} sku - The product SKU
+ * @returns {Promise<string>} - URL to the generated mockup
+ */
+async function generateBasicMockup(designImagePath, designId, sku) {
+  try {
+    console.log('Generating basic mockup without PSD template');
+    
+    // Create a new image with a border and shadow
+    const outputPath = path.join(TEMP_DIR, `mockup-${designId}-${Date.now()}.jpg`);
+    
+    await sharp(designImagePath)
+      // Resize to a standard size
+      .resize(800, 800, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+      // Add a border and drop shadow (using composite for shadow effect)
+      .composite([
+        {
+          input: Buffer.from(`
+            <svg width="820" height="820" xmlns="http://www.w3.org/2000/svg">
+              <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity="0.3"/>
+              </filter>
+              <rect x="10" y="10" width="800" height="800" rx="10" ry="10" fill="#ffffff" filter="url(#shadow)"/>
+            </svg>`
+          ),
+          blend: 'over'
+        }
+      ])
+      .composite([
+        {
+          input: await sharp(designImagePath)
+            .resize(780, 780, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+            .toBuffer(),
+          top: 20,
+          left: 20
+        }
+      ])
+      .jpeg({ quality: 90 })
+      .toFile(outputPath);
+    
+    // Upload to Vercel Blob
+    const mockupFile = fs.readFileSync(outputPath);
+    const blobName = `mockups/${sku}/${designId}.jpg`;
+    
+    console.log(`Uploading basic mockup to blob storage: ${blobName}`);
+    const blob = await put(blobName, mockupFile, {
+      access: 'public',
+      contentType: 'image/jpeg'
+    });
+    
+    await cleanupFiles(outputPath);
+    return blob.url;
+  } catch (error) {
+    console.error('Error generating basic mockup:', error);
+    throw error;
   }
 }
 
@@ -349,5 +433,6 @@ async function createFallbackImage(outputPath, text = 'Placeholder') {
 }
 
 module.exports = {
-  generateMockup
+  generateMockup,
+  generateBasicMockup
 };
