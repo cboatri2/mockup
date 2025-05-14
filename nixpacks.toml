@@ -12,7 +12,7 @@ nixPkgs = [
   "xorg.libXdamage",
   "xorg.libxfixes",
   "xorg.libxcb",
-  "xorg.libxext",
+  "xorg.libXext",
   "xorg.libX11",
   "cups",
   "dbus",
