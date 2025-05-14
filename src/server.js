@@ -13,16 +13,46 @@ const imageProcessor = require("./image-processor");
 // Import routes
 const healthRoutes = require('./routes/health');
 
+// Load configuration from config.json if it exists
+let config = {};
+const configPath = path.join(__dirname, '..', 'config.json');
+if (fs.existsSync(configPath)) {
+  try {
+    config = require(configPath);
+    console.log('Loaded configuration from config.json');
+  } catch (err) {
+    console.error('Error loading config.json:', err.message);
+  }
+}
+
 // Setup app
 const app = express();
-const PORT = process.env.PORT || 3000;
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const PORT = process.env.PORT || config.serviceSettings?.port || 3000;
+const BASE_URL = process.env.BASE_URL || config.serviceSettings?.baseUrl || `http://localhost:${PORT}`;
 const PUBLIC_PATH = process.env.PUBLIC_PATH || '/mockups';
 
-// Template configuration
-const USE_REMOTE_TEMPLATES = !!process.env.PSD_TEMPLATE_URL;
-const PSD_TEMPLATE_URL = process.env.PSD_TEMPLATE_URL;
-const DESIGN_PLACEHOLDER_NAME = process.env.DESIGN_PLACEHOLDER_NAME || 'Design';
+// Template configuration with precedence for environment variables over config.json
+const USE_REMOTE_TEMPLATES = !!(process.env.PSD_TEMPLATE_URL || config.templateSettings?.psdTemplateUrl);
+const PSD_TEMPLATE_URL = process.env.PSD_TEMPLATE_URL || config.templateSettings?.psdTemplateUrl;
+const DESIGN_PLACEHOLDER_NAME = process.env.DESIGN_PLACEHOLDER_NAME || config.templateSettings?.designPlaceholderName || 'Design';
+
+// Layer names to try when looking for the design placeholder layer
+const LAYER_NAMES = config.layerNames || ["Design", "YOUR DESIGN", "YOUR DESIGN HERE", "DESIGN", "DESIGN HERE", "place-design", "design-placeholder"];
+
+// Enable debug logging
+const DEBUG = process.env.DEBUG === 'true' || config.debug === true;
+
+// Log configuration for debugging
+if (DEBUG) {
+  console.log('Configuration:', {
+    useRemoteTemplates: USE_REMOTE_TEMPLATES,
+    psdTemplateUrl: PSD_TEMPLATE_URL,
+    designPlaceholderName: DESIGN_PLACEHOLDER_NAME,
+    layerNames: LAYER_NAMES,
+    corsOrigin: process.env.CORS_ORIGIN || config.corsSettings?.allowedOrigins || '*',
+    baseUrl: BASE_URL
+  });
+}
 
 // Define template and temp directories
 const TEMPLATES_DIR = path.join(__dirname, '..', 'assets', 'templates');
@@ -39,8 +69,8 @@ if (!fs.existsSync(TEMP_DIR)) {
   console.log(`Created temp directory: ${TEMP_DIR}`);
 }
 
-// Get the allowed origin from environment variable or allow all in development
-const corsOrigin = process.env.CORS_ORIGIN || '*';
+// Get the allowed origin from environment variable or config.json or allow all in development
+const corsOrigin = process.env.CORS_ORIGIN || (config.corsSettings?.allowedOrigins ? config.corsSettings.allowedOrigins : '*');
 console.log(`CORS Origin: ${corsOrigin}`);
 
 // Basic middleware
@@ -57,6 +87,11 @@ app.use(express.json());
  * @returns {Promise<string|null>} - Path to the template or null if not found
  */
 async function findTemplateForSku(sku) {
+  if (DEBUG) {
+    console.log(`Finding template for SKU: ${sku}`);
+    console.log(`Using PSD_TEMPLATE_URL: ${PSD_TEMPLATE_URL}`);
+  }
+  
   // First check local templates - faster than remote retrieval
   const templateFormats = ['.psd', '.png', '.jpg', '.jpeg'];
   
@@ -64,6 +99,7 @@ async function findTemplateForSku(sku) {
   for (const format of templateFormats) {
     const exactPath = path.join(TEMPLATES_DIR, `${sku}${format}`);
     if (fs.existsSync(exactPath)) {
+      if (DEBUG) console.log(`Found local template for SKU ${sku}: ${exactPath}`);
       return exactPath;
     }
   }
@@ -72,6 +108,7 @@ async function findTemplateForSku(sku) {
   for (const format of templateFormats) {
     const defaultPath = path.join(TEMPLATES_DIR, `default${format}`);
     if (fs.existsSync(defaultPath)) {
+      if (DEBUG) console.log(`Using default local template: ${defaultPath}`);
       return defaultPath;
     }
   }
@@ -89,12 +126,39 @@ async function findTemplateForSku(sku) {
         const remoteTemplatePath = path.join(TEMP_DIR, `template-${sku}.psd`);
         
         try {
-          const response = await axios.get(PSD_TEMPLATE_URL, { responseType: 'arraybuffer' });
+          if (DEBUG) console.log(`Downloading template from ${PSD_TEMPLATE_URL} to ${remoteTemplatePath}`);
+          
+          const response = await axios.get(PSD_TEMPLATE_URL, { 
+            responseType: 'arraybuffer',
+            timeout: 15000 // 15 second timeout
+          });
+          
+          if (DEBUG) console.log(`Download complete: ${response.status}, data size: ${response.data.length} bytes`);
+          
           fs.writeFileSync(remoteTemplatePath, response.data);
           console.log(`Downloaded template from ${PSD_TEMPLATE_URL}`);
-          return remoteTemplatePath;
+          
+          // Verify the template was saved correctly
+          if (fs.existsSync(remoteTemplatePath)) {
+            const stats = fs.statSync(remoteTemplatePath);
+            if (DEBUG) console.log(`Template saved, size: ${stats.size} bytes`);
+            
+            if (stats.size > 0) {
+              return remoteTemplatePath;
+            } else {
+              console.error(`Downloaded template file is empty: ${remoteTemplatePath}`);
+              return null;
+            }
+          } else {
+            console.error(`Failed to save template to: ${remoteTemplatePath}`);
+            return null;
+          }
         } catch (error) {
           console.error(`Error downloading template: ${error.message}`);
+          if (DEBUG && error.response) {
+            console.error(`Response status: ${error.response.status}`);
+            console.error(`Response headers:`, error.response.headers);
+          }
           return null;
         }
       } else {
@@ -157,6 +221,15 @@ app.post("/render-mockup", async (req, res) => {
   try {
     const { designId, sku, imageUrl, mode } = req.body;
     
+    if (DEBUG) {
+      console.log('Mockup request received:', {
+        designId,
+        sku,
+        imageUrl: imageUrl ? (imageUrl.substring(0, 50) + '...') : undefined,
+        mode
+      });
+    }
+    
     if (!designId || !sku || !imageUrl) {
       return res.status(400).json({ 
         success: false, 
@@ -211,16 +284,42 @@ app.post("/render-mockup", async (req, res) => {
       fallbackUsed: false
     };
     
+    if (DEBUG) {
+      console.log('Processing status before mockup generation:', processingStatus);
+      console.log('Design layer names to try:', LAYER_NAMES);
+    }
+    
     // Generate mockup using the appropriate method based on template type
     try {
-      mockupPath = await imageProcessor.generateMockup({
-        templatePath,
-        designImagePath,
-        designId,
-        sku,
-        mode: processingMode,
-        designLayerName: DESIGN_PLACEHOLDER_NAME
-      });
+      // Try to use each potential layer name in order until one works
+      let mockupError = null;
+      for (const layerName of LAYER_NAMES) {
+        try {
+          console.log(`Attempting mockup generation with layer name: ${layerName}`);
+          mockupPath = await imageProcessor.generateMockup({
+            templatePath,
+            designImagePath,
+            designId,
+            sku,
+            mode: processingMode,
+            designLayerName: layerName,
+            debug: DEBUG
+          });
+          
+          // If we reach here, the mockup was generated successfully
+          console.log(`Mockup generated successfully with layer name: ${layerName}`);
+          mockupError = null;
+          break;
+        } catch (error) {
+          console.log(`Layer name ${layerName} failed: ${error.message}`);
+          mockupError = error;
+        }
+      }
+      
+      // If all layer names failed, throw the last error
+      if (mockupError) {
+        throw mockupError;
+      }
       
       // Determine which method was used based on file type and mode
       if (!templatePath) {
@@ -241,12 +340,26 @@ app.post("/render-mockup", async (req, res) => {
       console.log(`Mockup generated at: ${mockupPath} using ${processingStatus.methodUsed} method`);
     } catch (mockupError) {
       console.error(`Failed to generate mockup: ${mockupError.message}`);
-      // If all mockup generation methods fail, fall back to basic mockup
-      mockupPath = await imageProcessor.generateBasicMockup(designImagePath, `${sku} mockup`);
-      console.log(`Fallback basic mockup generated at: ${mockupPath}`);
+      console.error('Error details:', mockupError.stack || 'No stack trace available');
       
-      processingStatus.methodUsed = 'basic';
-      processingStatus.fallbackUsed = true;
+      // If all mockup generation methods fail, fall back to basic mockup
+      try {
+        mockupPath = await imageProcessor.generateBasicMockup(designImagePath, `${sku} mockup`);
+        console.log(`Fallback basic mockup generated at: ${mockupPath}`);
+        
+        processingStatus.methodUsed = 'basic';
+        processingStatus.fallbackUsed = true;
+        processingStatus.error = mockupError.message;
+      } catch (fallbackError) {
+        console.error(`Even basic mockup failed: ${fallbackError.message}`);
+        return res.json({
+          success: false,
+          error: `Mockup generation failed: ${mockupError.message}`,
+          fallbackError: fallbackError.message,
+          // Return the original image URL as mockupUrl so the UI can still show something
+          mockupUrl: imageUrl
+        });
+      }
     }
     
     // Create a URL for the mockup using configured BASE_URL

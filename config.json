@@ -1,0 +1,19 @@
+{
+  "templateSettings": {
+    "psdTemplateUrl": "https://pfyspfutnfnap3ka.public.blob.vercel-storage.com/templates/topper-mockup-front.psd",
+    "designPlaceholderName": "Design"
+  },
+  "corsSettings": {
+    "allowedOrigins": [
+      "https://topperswap-club.vercel.app",
+      "https://topperswap.vercel.app",
+      "https://topperswap-club-git-main-cboatri2.vercel.app"
+    ]
+  },
+  "serviceSettings": {
+    "port": 3001,
+    "baseUrl": "https://topperswap-psd-mockup-service.up.railway.app"
+  },
+  "debug": true,
+  "layerNames": ["Design", "YOUR DESIGN", "YOUR DESIGN HERE", "DESIGN", "DESIGN HERE", "place-design", "design-placeholder"]
+} 
