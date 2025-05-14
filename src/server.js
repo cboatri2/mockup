@@ -30,6 +30,7 @@ const app = express();
 const PORT = process.env.PORT || config.serviceSettings?.port || 3000;
 const BASE_URL = process.env.BASE_URL || config.serviceSettings?.baseUrl || `http://localhost:${PORT}`;
 const PUBLIC_PATH = process.env.PUBLIC_PATH || '/mockups';
+const IS_RAILWAY = process.env.RAILWAY_STATIC_URL || process.env.RAILWAY_SERVICE_NAME || false;
 
 // Template configuration with precedence for environment variables over config.json
 const USE_REMOTE_TEMPLATES = !!(process.env.PSD_TEMPLATE_URL || config.templateSettings?.psdTemplateUrl);
@@ -38,6 +39,9 @@ const DESIGN_PLACEHOLDER_NAME = process.env.DESIGN_PLACEHOLDER_NAME || config.te
 
 // Layer names to try when looking for the design placeholder layer
 const LAYER_NAMES = config.layerNames || ["Design", "YOUR DESIGN", "YOUR DESIGN HERE", "DESIGN", "DESIGN HERE", "place-design", "design-placeholder"];
+
+// Check for Chromium path (used by Puppeteer)
+const CHROMIUM_PATH = process.env.CHROMIUM_PATH || '/nix/store/chromium/bin/chromium';
 
 // Enable debug logging
 const DEBUG = process.env.DEBUG === 'true' || config.debug === true;
@@ -50,7 +54,11 @@ if (DEBUG) {
     designPlaceholderName: DESIGN_PLACEHOLDER_NAME,
     layerNames: LAYER_NAMES,
     corsOrigin: process.env.CORS_ORIGIN || config.corsSettings?.allowedOrigins || '*',
-    baseUrl: BASE_URL
+    baseUrl: BASE_URL,
+    isRailway: IS_RAILWAY,
+    chromiumPath: CHROMIUM_PATH,
+    nodePath: process.execPath,
+    nodeVersion: process.version
   });
 }
 
@@ -281,7 +289,9 @@ app.post("/render-mockup", async (req, res) => {
       templateFound: !!templatePath,
       templateType: templatePath ? path.extname(templatePath).toLowerCase().substring(1) : null,
       methodUsed: null,
-      fallbackUsed: false
+      fallbackUsed: false,
+      environment: IS_RAILWAY ? 'railway' : 'local',
+      chromiumPath: CHROMIUM_PATH
     };
     
     if (DEBUG) {
@@ -303,7 +313,8 @@ app.post("/render-mockup", async (req, res) => {
             sku,
             mode: processingMode,
             designLayerName: layerName,
-            debug: DEBUG
+            debug: DEBUG,
+            chromiumPath: CHROMIUM_PATH
           });
           
           // If we reach here, the mockup was generated successfully
