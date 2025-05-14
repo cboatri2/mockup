@@ -6,8 +6,8 @@ const { generateMockup } = require('./image-processor');
 // Configuration
 const PORT = process.env.PORT || 3000;
 
-// IMPORTANT: Force test mode for now
-const TEST_MODE = true;
+// IMPORTANT: Force test mode to false for production
+const TEST_MODE = false;
 
 const app = express();
 
