@@ -34,7 +34,11 @@ function ensureDirectoriesExist() {
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: ['https://topperswap-club.vercel.app', 'http://localhost:3000'],
+  methods: ['GET', 'POST'],
+  credentials: true
+}));
 app.use(express.json());
 
 // Health check endpoint
@@ -42,6 +46,16 @@ app.get("/health", (req, res) => {
   res.json({ 
     ok: true, 
     version: "1.0.0"
+  });
+});
+
+// CORS test endpoint
+app.get("/cors-test", (req, res) => {
+  res.json({
+    success: true,
+    message: "CORS is working correctly",
+    headers: req.headers,
+    timestamp: new Date().toISOString()
   });
 });
 
