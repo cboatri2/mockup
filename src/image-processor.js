@@ -529,16 +529,30 @@ async function generateBasicMockup(designImagePath, text = 'Mockup') {
  * @returns {string} - Template type ('psd', 'png', 'unknown')
  */
 function getTemplateType(templatePath) {
-  if (!templatePath) return 'unknown';
+  if (!templatePath) {
+    console.log('No template path provided');
+    return 'unknown';
+  }
   
+  console.log(`Determining template type for: ${templatePath}`);
   const extension = path.extname(templatePath).toLowerCase();
+  console.log(`Template file extension: ${extension}`);
   
   if (extension === '.psd') {
+    console.log('Template type determined as PSD');
     return 'psd';
   } else if (['.png', '.jpg', '.jpeg'].includes(extension)) {
+    console.log(`Template type determined as image format: ${extension}`);
     return 'png'; // treat all image formats as png for simplicity
   }
   
+  // If template URL ends with .psd but doesn't have proper extension
+  if (templatePath.toLowerCase().endsWith('.psd')) {
+    console.log('Template URL ends with .psd but path extension was not detected correctly');
+    return 'psd';
+  }
+  
+  console.log(`Unknown template type for extension: ${extension}`);
   return 'unknown';
 }
 
@@ -568,17 +582,16 @@ async function generateMockup(params) {
     debug = false
   } = params;
   
-  if (debug) {
-    console.log('Generate mockup params:', {
-      templatePath,
-      designImagePath,
-      designId,
-      sku,
-      mode,
-      designLayerName,
-      chromeEnabled: !!chromePath
-    });
-  }
+  console.log('==== GENERATE MOCKUP START ====');
+  console.log('Generate mockup params:', {
+    templatePath,
+    designImagePath,
+    designId,
+    sku,
+    mode,
+    designLayerName,
+    chromeEnabled: !!chromePath
+  });
   
   try {
     // Check if template exists
@@ -587,71 +600,81 @@ async function generateMockup(params) {
       
       // Determine template type
       const templateType = getTemplateType(templatePath);
-      console.log(`Template type: ${templateType}`);
+      console.log(`Template type detected: ${templateType}`);
       
-      // If it's a PNG template, use the PNG processor
-      if (templateType === 'png') {
-        console.log('Using PNG template processor');
-        return generateMockupWithPngTemplate(templatePath, designImagePath);
-      }
-      
-      // For PSD templates, choose the processing approach based on mode
+      // Handle based on template type and mode
       if (templateType === 'psd') {
-        if (mode === 'photopea') {
-          // Only use Photopea
+        console.log('PSD template detected - will use Photopea or PSD.js');
+        
+        // For PSD templates, choose the processing approach based on mode
+        if (mode === 'photopea' || mode === 'auto') {
+          // Preferably use Photopea for PSD files
           console.log(`Using Photopea mode for mockup generation`);
           // Set CHROMIUM_PATH environment variable if provided
           if (chromePath) {
             process.env.CHROMIUM_PATH = chromePath;
             console.log(`Using custom Chromium path: ${chromePath}`);
           }
-          return generateMockupWithPhotopea(templatePath, designImagePath, designLayerName);
+          
+          try {
+            console.log(`Starting Photopea processing: Template: ${templatePath}, Layer: ${designLayerName}`);
+            const mockupPath = await generateMockupWithPhotopea(templatePath, designImagePath, designLayerName);
+            console.log('==== GENERATE MOCKUP END - PHOTOPEA SUCCESS ====');
+            return mockupPath;
+          } catch (photopeaError) {
+            console.error(`Photopea approach failed: ${photopeaError.message}`);
+            
+            // Only fall back to PSD.js if mode is 'auto'
+            if (mode === 'auto') {
+              try {
+                console.log(`Falling back to PSD.js for mockup generation`);
+                const mockupPath = await generateMockupWithPsdJs(templatePath, designImagePath, designLayerName);
+                console.log('==== GENERATE MOCKUP END - PSDJS FALLBACK SUCCESS ====');
+                return mockupPath;
+              } catch (psdError) {
+                console.error(`PSD.js approach failed: ${psdError.message}`);
+                console.log(`Falling back to basic mockup generation`);
+                // If both methods fail, fall back to basic mockup
+                const mockupPath = await generateBasicMockup(designImagePath, `${sku} mockup`);
+                console.log('==== GENERATE MOCKUP END - BASIC FALLBACK SUCCESS ====');
+                return mockupPath;
+              }
+            } else {
+              // If mode is specifically 'photopea', propagate the error
+              throw photopeaError;
+            }
+          }
         } else if (mode === 'psdjs') {
           // Only use PSD.js
           console.log(`Using PSD.js mode for mockup generation`);
-          return generateMockupWithPsdJs(templatePath, designImagePath, designLayerName);
-        } else {
-          // Auto mode - try Photopea first, fall back to PSD.js if it fails
-          console.log(`Trying Photopea first for mockup generation`);
-          try {
-            console.log(`Template: ${templatePath}, Layer: ${designLayerName}`);
-            
-            // Set CHROMIUM_PATH environment variable if provided
-            if (chromePath) {
-              process.env.CHROMIUM_PATH = chromePath;
-              console.log(`Using custom Chromium path: ${chromePath}`);
-            }
-            
-            const mockupPath = await generateMockupWithPhotopea(templatePath, designImagePath, designLayerName);
-            return mockupPath;
-          } catch (photopeaError) {
-            console.error(`Photopea approach failed for template ${templatePath} with layer ${designLayerName}: ${photopeaError.message}`);
-            
-            try {
-              console.log(`Falling back to PSD.js for mockup generation`);
-              console.log(`Template: ${templatePath}, Layer: ${designLayerName}`);
-              const mockupPath = await generateMockupWithPsdJs(templatePath, designImagePath, designLayerName);
-              return mockupPath;
-            } catch (psdError) {
-              console.error(`PSD.js approach failed for template ${templatePath} with layer ${designLayerName}: ${psdError.message}`);
-              console.log(`Falling back to basic mockup generation`);
-              // If both methods fail, fall back to basic mockup
-              return generateBasicMockup(designImagePath, `${sku} mockup`);
-            }
-          }
+          const mockupPath = await generateMockupWithPsdJs(templatePath, designImagePath, designLayerName);
+          console.log('==== GENERATE MOCKUP END - PSDJS SUCCESS ====');
+          return mockupPath;
         }
+      } else if (templateType === 'png') {
+        // If it's a PNG template, use the PNG processor
+        console.log('Using PNG template processor');
+        const mockupPath = await generateMockupWithPngTemplate(templatePath, designImagePath);
+        console.log('==== GENERATE MOCKUP END - PNG SUCCESS ====');
+        return mockupPath;
+      } else {
+        // Unknown template type, fall back to basic mockup
+        console.log(`Unsupported template type: ${templateType}, using basic mockup`);
+        const mockupPath = await generateBasicMockup(designImagePath, `${sku} mockup`);
+        console.log('==== GENERATE MOCKUP END - BASIC SUCCESS (UNSUPPORTED TYPE) ====');
+        return mockupPath;
       }
-      
-      // Unknown template type, fall back to basic mockup
-      console.log(`Unsupported template type: ${templateType}, using basic mockup`);
-      return generateBasicMockup(designImagePath, `${sku} mockup`);
     } else {
       // No template available, generate a basic mockup
       console.log(`No template available for ${sku}, generating basic mockup`);
-      return generateBasicMockup(designImagePath, `${sku} mockup`);
+      const mockupPath = await generateBasicMockup(designImagePath, `${sku} mockup`);
+      console.log('==== GENERATE MOCKUP END - BASIC SUCCESS (NO TEMPLATE) ====');
+      return mockupPath;
     }
   } catch (error) {
     console.error(`Failed to generate mockup: ${error.message}`);
+    console.error(error.stack);
+    console.log('==== GENERATE MOCKUP END - ERROR ====');
     throw error;
   }
 }

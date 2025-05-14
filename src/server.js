@@ -139,10 +139,9 @@ app.options('*', cors(corsConfig));
  * @returns {Promise<string|null>} - Path to the template or null if not found
  */
 async function findTemplateForSku(sku) {
-  if (DEBUG) {
-    console.log(`Finding template for SKU: ${sku}`);
-    console.log(`Using PSD_TEMPLATE_URL: ${PSD_TEMPLATE_URL}`);
-  }
+  console.log(`Finding template for SKU: ${sku}`);
+  console.log(`Using PSD_TEMPLATE_URL: ${PSD_TEMPLATE_URL}`);
+  console.log(`Remote templates enabled: ${USE_REMOTE_TEMPLATES}`);
   
   // First check local templates - faster than remote retrieval
   const templateFormats = ['.psd', '.png', '.jpg', '.jpeg'];
@@ -151,7 +150,7 @@ async function findTemplateForSku(sku) {
   for (const format of templateFormats) {
     const exactPath = path.join(TEMPLATES_DIR, `${sku}${format}`);
     if (fs.existsSync(exactPath)) {
-      if (DEBUG) console.log(`Found local template for SKU ${sku}: ${exactPath}`);
+      console.log(`Found local template for SKU ${sku}: ${exactPath}`);
       return exactPath;
     }
   }
@@ -160,7 +159,7 @@ async function findTemplateForSku(sku) {
   for (const format of templateFormats) {
     const defaultPath = path.join(TEMPLATES_DIR, `default${format}`);
     if (fs.existsSync(defaultPath)) {
-      if (DEBUG) console.log(`Using default local template: ${defaultPath}`);
+      console.log(`Using default local template: ${defaultPath}`);
       return defaultPath;
     }
   }
@@ -172,20 +171,21 @@ async function findTemplateForSku(sku) {
       
       // Check if PSD_TEMPLATE_URL is a direct file URL or a base directory
       const isDirectPsdUrl = PSD_TEMPLATE_URL.toLowerCase().endsWith('.psd');
+      console.log(`Direct PSD URL: ${isDirectPsdUrl}`);
       
       if (isDirectPsdUrl) {
         // Direct URL to a PSD file - use for all SKUs
         const remoteTemplatePath = path.join(TEMP_DIR, `template-${sku}.psd`);
         
         try {
-          if (DEBUG) console.log(`Downloading template from ${PSD_TEMPLATE_URL} to ${remoteTemplatePath}`);
+          console.log(`Downloading template from ${PSD_TEMPLATE_URL} to ${remoteTemplatePath}`);
           
           const response = await axios.get(PSD_TEMPLATE_URL, { 
             responseType: 'arraybuffer',
             timeout: 15000 // 15 second timeout
           });
           
-          if (DEBUG) console.log(`Download complete: ${response.status}, data size: ${response.data.length} bytes`);
+          console.log(`Download complete: ${response.status}, data size: ${response.data.length} bytes`);
           
           fs.writeFileSync(remoteTemplatePath, response.data);
           console.log(`Downloaded template from ${PSD_TEMPLATE_URL}`);
@@ -193,7 +193,11 @@ async function findTemplateForSku(sku) {
           // Verify the template was saved correctly
           if (fs.existsSync(remoteTemplatePath)) {
             const stats = fs.statSync(remoteTemplatePath);
-            if (DEBUG) console.log(`Template saved, size: ${stats.size} bytes`);
+            console.log(`Template saved, size: ${stats.size} bytes`);
+            
+            // Check if file has PSD signature
+            const isPsd = isPsdFile(remoteTemplatePath);
+            console.log(`File check: isPSD=${isPsd}`);
             
             if (stats.size > 0) {
               return remoteTemplatePath;
@@ -207,7 +211,7 @@ async function findTemplateForSku(sku) {
           }
         } catch (error) {
           console.error(`Error downloading template: ${error.message}`);
-          if (DEBUG && error.response) {
+          if (error.response) {
             console.error(`Response status: ${error.response.status}`);
             console.error(`Response headers:`, error.response.headers);
           }
@@ -220,6 +224,7 @@ async function findTemplateForSku(sku) {
         const remoteTemplateUrl = `${PSD_TEMPLATE_URL}/${sku}.psd`;
         
         try {
+          console.log(`Trying to download SKU-specific template from: ${remoteTemplateUrl}`);
           const response = await axios.get(remoteTemplateUrl, { responseType: 'arraybuffer' });
           fs.writeFileSync(remoteTemplatePath, response.data);
           console.log(`Downloaded template from ${remoteTemplateUrl}`);
@@ -232,6 +237,7 @@ async function findTemplateForSku(sku) {
           const defaultTemplateUrl = `${PSD_TEMPLATE_URL}/default.psd`;
           
           try {
+            console.log(`Trying to download default template from: ${defaultTemplateUrl}`);
             const response = await axios.get(defaultTemplateUrl, { responseType: 'arraybuffer' });
             fs.writeFileSync(defaultTemplatePath, response.data);
             console.log(`Downloaded default template from ${defaultTemplateUrl}`);
@@ -249,7 +255,28 @@ async function findTemplateForSku(sku) {
   }
   
   // No template found
+  console.log('No template found after exhausting all options');
   return null;
+}
+
+/**
+ * Check if a file is a PSD file by reading its signature
+ * @param {string} filePath - Path to the file
+ * @returns {boolean} - Whether the file is a PSD
+ */
+function isPsdFile(filePath) {
+  try {
+    const header = Buffer.alloc(4);
+    const fd = fs.openSync(filePath, 'r');
+    fs.readSync(fd, header, 0, 4, 0);
+    fs.closeSync(fd);
+    
+    // Check for PSD signature "8BPS"
+    return header.toString('ascii') === '8BPS';
+  } catch (error) {
+    console.error(`Error checking if file is PSD: ${error.message}`);
+    return false;
+  }
 }
 
 // Register routes
@@ -487,8 +514,9 @@ app.post("/render-mockup", async (req, res) => {
       });
     }
     
-    // Determine processing mode (default to 'auto')
-    const processingMode = mode || 'auto';
+    // Determine processing mode (default to 'photopea' for best results)
+    // Only fall back to 'auto' if explicitly requested
+    const processingMode = mode || 'photopea';
     console.log(`Mockup request: design=${designId}, sku=${sku}, mode=${processingMode}`);
     
     // Find the best template for this SKU
@@ -496,6 +524,14 @@ app.post("/render-mockup", async (req, res) => {
     
     if (templatePath) {
       console.log(`Found template for SKU ${sku}: ${templatePath}`);
+      
+      // Check template type
+      const templateType = path.extname(templatePath).toLowerCase();
+      console.log(`Template type by extension: ${templateType}`);
+      
+      // Force photopea mode for .psd files
+      const finalMode = templateType === '.psd' ? 'photopea' : processingMode;
+      console.log(`Final processing mode: ${finalMode}`);
     } else {
       console.log(`No template found for SKU: ${sku}, using fallback`);
     }
@@ -565,7 +601,7 @@ app.post("/render-mockup", async (req, res) => {
             designImagePath,
             designId,
             sku,
-            mode: processingMode, 
+            mode: templatePath && path.extname(templatePath).toLowerCase() === '.psd' ? 'photopea' : processingMode,
             designLayerName: layerName,
             debug: DEBUG,
             chromePath: CHROME_PATH
