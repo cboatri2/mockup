@@ -5,6 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 
+// Constants
+const TEMP_DIR = path.join(__dirname, '..', 'temp');
+
 /**
  * Downloads a file from a URL to a local path
  * 
@@ -44,31 +47,81 @@ async function downloadFile(url, outputPath) {
 /**
  * Downloads a design image from a URL
  * 
- * @param {string} imageUrl - The URL of the design image
- * @param {string} designId - The design ID for file naming
+ * @param {string} imageUrl - The URL of the image to download
+ * @param {string} designDir - The ID of the design (used for folder naming)
  * @returns {Promise<string>} - The path to the downloaded image
  */
-async function downloadDesignImage(imageUrl, designId) {
-  const tempDir = path.join(__dirname, '..', 'temp');
-  const fileExt = path.extname(new URL(imageUrl).pathname) || '.png';
-  const outputPath = path.join(tempDir, `design-${designId}${fileExt}`);
+async function downloadDesignImage(imageUrl, designDir) {
+  // Create a descriptive filename based on the URL
+  const urlObj = new URL(imageUrl);
+  const extension = path.extname(urlObj.pathname) || '.png';
+  const filename = `design-image${extension}`;
   
-  return await downloadFile(imageUrl, outputPath);
+  // Get the design directory or create it from design ID if it's just a string
+  const outputDir = typeof designDir === 'string' && !designDir.includes('/') && !designDir.includes('\\')
+    ? path.join(TEMP_DIR, designDir)
+    : designDir;
+  
+  // Ensure the temp directory exists
+  fs.mkdirSync(outputDir, { recursive: true });
+  
+  const outputPath = path.join(outputDir, filename);
+  
+  // Log attempt
+  console.log(`Attempting to download image from ${imageUrl} to ${outputPath}`);
+  
+  try {
+    // Download the image
+    const maxRetries = 3;
+    let attempt = 1;
+    let lastError = null;
+    
+    while (attempt <= maxRetries) {
+      try {
+        console.log(`Download attempt ${attempt}/${maxRetries}...`);
+        await downloadFile(imageUrl, outputPath);
+        console.log(`✅ Successfully downloaded image to ${outputPath}`);
+        return outputPath;
+      } catch (error) {
+        lastError = error;
+        console.error(`❌ Attempt ${attempt}/${maxRetries} failed: ${error.message}`);
+        attempt++;
+        
+        if (attempt <= maxRetries) {
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    }
+    
+    // If we've exhausted all retries, throw the last error
+    throw lastError || new Error('Failed to download image after multiple attempts');
+  } catch (error) {
+    console.error(`Failed to download design image: ${error.message}`);
+    throw error;
+  }
 }
 
 /**
- * Clean up temporary files
+ * Cleans up temporary files
  * 
- * @param {string[]} filePaths - Array of file paths to delete
+ * @param {string|string[]} filePaths - The file paths to remove
+ * @returns {Promise<void>}
  */
-function cleanupFiles(filePaths) {
-  for (const filePath of filePaths) {
+async function cleanupFiles(filePaths) {
+  if (!filePaths) return;
+  
+  const paths = Array.isArray(filePaths) ? filePaths : [filePaths];
+  
+  for (const filePath of paths) {
     try {
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
+        console.log(`Cleaned up temporary file: ${filePath}`);
       }
     } catch (error) {
-      console.error(`Error cleaning up file ${filePath}:`, error);
+      console.error(`Error cleaning up file ${filePath}:`, error.message);
+      // Continue with other files even if one fails
     }
   }
 }

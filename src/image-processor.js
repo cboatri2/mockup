@@ -243,14 +243,29 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
  * @param {string} options.imageUrl - The design image URL
  * @returns {Promise<string>} - URL to the generated mockup
  */
-async function generateMockup({ designId, sku, imageUrl }) {
-  console.log(`Generating mockup for design ${designId}, product ${sku}`);
-  
-  let designImagePath = null;
-  let mockupImagePath = null;
-  let uploadedUrl = null;
+async function generateMockup(params) {
+  const { designId, sku, imageUrl } = params;
   
   try {
+    console.log(`Starting mockup generation for design ${designId}, product ${sku}`);
+    
+    // Create temporary directories
+    const designDir = path.join(TEMP_DIR, designId);
+    fs.mkdirSync(designDir, { recursive: true });
+    
+    // Download the design image
+    console.log(`Downloading design image from ${imageUrl}`);
+    let designImagePath;
+    try {
+      designImagePath = await downloadDesignImage(imageUrl, designDir);
+    } catch (downloadError) {
+      console.error('Error downloading design image:', downloadError);
+      // Create a simple placeholder image since we can't download
+      console.log('Creating fallback placeholder image');
+      designImagePath = path.join(designDir, 'fallback-image.png');
+      await createFallbackImage(designImagePath, 'Design Image Placeholder');
+    }
+    
     // Get template file based on SKU
     const templatePath = path.join(TEMPLATES_DIR, `${sku}.psd`);
     
@@ -260,11 +275,8 @@ async function generateMockup({ designId, sku, imageUrl }) {
       templatePath : 
       path.join(TEMPLATES_DIR, 'default.psd');
     
-    // Download design image
-    designImagePath = await downloadDesignImage(imageUrl, designId);
-    console.log(`Design image downloaded to ${designImagePath}`);
-    
     // Try to generate with PSD.js first
+    let mockupImagePath = null;
     try {
       mockupImagePath = await generateMockupWithPsdJs(finalTemplatePath, designImagePath);
     } catch (psdJsError) {
@@ -284,7 +296,7 @@ async function generateMockup({ designId, sku, imageUrl }) {
       contentType: 'image/png'
     });
     
-    uploadedUrl = blob.url;
+    const uploadedUrl = blob.url;
     console.log(`Mockup uploaded to ${uploadedUrl}`);
     
     return uploadedUrl;
@@ -296,6 +308,44 @@ async function generateMockup({ designId, sku, imageUrl }) {
     const filesToCleanup = [designImagePath, mockupImagePath].filter(Boolean);
     cleanupFiles(filesToCleanup);
   }
+}
+
+/**
+ * Creates a fallback image when download fails
+ * @param {string} outputPath - Where to save the generated image 
+ * @param {string} text - Text to display on the image
+ * @returns {Promise<void>}
+ */
+async function createFallbackImage(outputPath, text = 'Placeholder') {
+  return new Promise((resolve, reject) => {
+    try {
+      // Create a simple 500x500 colored image with text
+      const width = 500;
+      const height = 500;
+      const svg = `
+        <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100%" height="100%" fill="#f0f0f0"/>
+          <text x="50%" y="50%" font-family="Arial" font-size="24" fill="#333" text-anchor="middle" dominant-baseline="middle">${text}</text>
+        </svg>
+      `;
+      
+      // Convert SVG to PNG using sharp
+      sharp(Buffer.from(svg))
+        .png()
+        .toFile(outputPath)
+        .then(() => {
+          console.log(`Created fallback image at ${outputPath}`);
+          resolve(outputPath);
+        })
+        .catch(err => {
+          console.error('Error creating fallback image:', err);
+          reject(err);
+        });
+    } catch (error) {
+      console.error('Error in createFallbackImage:', error);
+      reject(error);
+    }
+  });
 }
 
 module.exports = {
