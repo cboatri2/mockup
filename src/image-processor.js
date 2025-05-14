@@ -157,62 +157,60 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
   try {
     console.log('Launching Puppeteer for Photopea mockup generation...');
     
-    // Check for Chromium path in environment variable (set by Railway with Nixpacks)
-    const chromiumPath = process.env.CHROMIUM_PATH || process.env.PUPPETEER_EXECUTABLE_PATH;
-    console.log(`Chromium path from env: ${chromiumPath}`);
+    // Check for Chrome/Chromium path in environment variables
+    const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROMIUM_PATH;
+    console.log(`Chrome path from env: ${chromePath}`);
     
-    // Define possible Chromium paths for Railway environment
+    // Define possible Chrome/Chromium paths
     const possiblePaths = [
-      chromiumPath,
+      chromePath,
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
       '/usr/bin/chromium',
-      '/usr/bin/chromium-browser',
-      '/usr/lib/chromium/chromium',
-      '/usr/lib/chromium-browser/chromium-browser'
+      '/usr/bin/chromium-browser'
     ].filter(Boolean); // Remove undefined/null entries
     
-    // Try to find the first existing Chromium executable
+    // Try to find the first existing Chrome executable
     let executablePath;
     for (const path of possiblePaths) {
       try {
         if (fs.existsSync(path)) {
-          console.log(`Found Chromium executable at: ${path}`);
+          console.log(`Found Chrome/Chromium executable at: ${path}`);
           executablePath = path;
           break;
         } else {
-          console.log(`Chromium not found at: ${path}`);
+          console.log(`Chrome/Chromium not found at: ${path}`);
         }
       } catch (err) {
         console.log(`Error checking path ${path}: ${err.message}`);
       }
     }
     
-    // Get list of files in /usr/bin to help with debugging
+    // Get list of Chrome/Chromium-related files for debugging
     try {
       if (fs.existsSync('/usr/bin')) {
-        const files = fs.readdirSync('/usr/bin').filter(f => f.includes('chrom'));
-        console.log(`Chrome-related binaries in /usr/bin:`, files);
+        const chromeFiles = fs.readdirSync('/usr/bin').filter(f => f.includes('chrome') || f.includes('chrom'));
+        console.log(`Chrome-related binaries in /usr/bin:`, chromeFiles);
       }
     } catch (err) {
       console.log(`Error listing /usr/bin: ${err.message}`);
     }
     
     if (executablePath) {
-      console.log(`Using Chromium at: ${executablePath}`);
+      console.log(`Using Chrome/Chromium at: ${executablePath}`);
     } else {
-      console.log('No Chromium executable found in standard locations, trying to launch without specifying path');
+      console.log('No Chrome/Chromium executable found in standard locations, trying to launch without specifying path');
     }
     
-    // Configure Puppeteer launch options with Railway-specific settings
+    // Configure Puppeteer launch options
     const launchOptions = {
-      headless: 'new', // Use new headless mode if available
+      headless: 'new',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--disable-software-rasterizer',
-        '--no-zygote',
-        '--single-process'
+        '--disable-software-rasterizer'
       ]
     };
     
@@ -499,7 +497,7 @@ function getTemplateType(templatePath) {
  * @param {string} params.sku - SKU of the product
  * @param {string} params.mode - Mode of mockup generation ('psdjs', 'photopea', or 'auto')
  * @param {string} params.designLayerName - Name of the design layer in the PSD
- * @param {string} params.chromiumPath - Path to Chromium executable (for Railway)
+ * @param {string} params.chromePath - Path to Chrome/Chromium executable
  * @param {boolean} params.debug - Enable debug logging
  * @returns {Promise<string>} - Path to the generated mockup
  */
@@ -511,7 +509,7 @@ async function generateMockup(params) {
     sku,
     mode = 'auto',
     designLayerName = DESIGN_PLACEHOLDER_NAME,
-    chromiumPath,
+    chromePath,
     debug = false
   } = params;
   
@@ -523,7 +521,7 @@ async function generateMockup(params) {
       sku,
       mode,
       designLayerName,
-      chromiumEnabled: !!chromiumPath
+      chromeEnabled: !!chromePath
     });
   }
   
@@ -548,9 +546,9 @@ async function generateMockup(params) {
           // Only use Photopea
           console.log(`Using Photopea mode for mockup generation`);
           // Set CHROMIUM_PATH environment variable if provided
-          if (chromiumPath) {
-            process.env.CHROMIUM_PATH = chromiumPath;
-            console.log(`Using custom Chromium path: ${chromiumPath}`);
+          if (chromePath) {
+            process.env.CHROMIUM_PATH = chromePath;
+            console.log(`Using custom Chromium path: ${chromePath}`);
           }
           return generateMockupWithPhotopea(templatePath, designImagePath, designLayerName);
         } else if (mode === 'psdjs') {
@@ -564,9 +562,9 @@ async function generateMockup(params) {
             console.log(`Template: ${templatePath}, Layer: ${designLayerName}`);
             
             // Set CHROMIUM_PATH environment variable if provided
-            if (chromiumPath) {
-              process.env.CHROMIUM_PATH = chromiumPath;
-              console.log(`Using custom Chromium path: ${chromiumPath}`);
+            if (chromePath) {
+              process.env.CHROMIUM_PATH = chromePath;
+              console.log(`Using custom Chromium path: ${chromePath}`);
             }
             
             const mockupPath = await generateMockupWithPhotopea(templatePath, designImagePath, designLayerName);

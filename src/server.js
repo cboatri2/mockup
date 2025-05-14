@@ -40,8 +40,10 @@ const DESIGN_PLACEHOLDER_NAME = process.env.DESIGN_PLACEHOLDER_NAME || config.te
 // Layer names to try when looking for the design placeholder layer
 const LAYER_NAMES = config.layerNames || ["Design Placeholder", "Design", "YOUR DESIGN", "YOUR DESIGN HERE", "DESIGN", "DESIGN HERE", "place-design", "design-placeholder"];
 
-// Check for Chromium path (used by Puppeteer)
-const CHROMIUM_PATH = process.env.CHROMIUM_PATH || process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium';
+// Check for Chrome/Chromium paths (used by Puppeteer)
+const CHROME_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || 
+                    process.env.CHROMIUM_PATH || 
+                    '/usr/bin/google-chrome';
 
 // Enable debug logging by default on Railway for troubleshooting
 const DEBUG = IS_RAILWAY || process.env.DEBUG === 'true' || config.debug === true;
@@ -55,7 +57,7 @@ console.log('Configuration:', {
   corsOrigin: process.env.CORS_ORIGIN || config.corsSettings?.allowedOrigins || '*',
   baseUrl: BASE_URL,
   isRailway: IS_RAILWAY,
-  chromiumPath: CHROMIUM_PATH,
+  chromePath: CHROME_PATH,
   nodePath: process.execPath,
   nodeVersion: process.version
 });
@@ -289,7 +291,7 @@ app.post("/render-mockup", async (req, res) => {
       methodUsed: null,
       fallbackUsed: false,
       environment: IS_RAILWAY ? 'railway' : 'local',
-      chromiumPath: CHROMIUM_PATH
+      chromePath: CHROME_PATH
     };
     
     if (DEBUG) {
@@ -312,7 +314,7 @@ app.post("/render-mockup", async (req, res) => {
             mode: processingMode,
             designLayerName: layerName,
             debug: DEBUG,
-            chromiumPath: CHROMIUM_PATH
+            chromePath: CHROME_PATH
           });
           
           // If we reach here, the mockup was generated successfully
