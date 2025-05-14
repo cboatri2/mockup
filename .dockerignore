@@ -1,0 +1,11 @@
+node_modules
+npm-debug.log
+temp/*
+.git
+.gitignore
+.env*
+.next
+.nixpacks*
+railway.toml
+nixpacks.toml
+README.md
