@@ -5,6 +5,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { exec } = require('child_process');
 
 module.exports = function(app) {
   app.get('/health', (req, res) => {
@@ -14,14 +15,28 @@ module.exports = function(app) {
     // Check if running on Railway
     const isRailway = process.env.RAILWAY_STATIC_URL || process.env.RAILWAY_SERVICE_NAME || false;
     
-    // Check for Chromium
-    const chromiumPath = process.env.CHROMIUM_PATH || '/nix/store/chromium/bin/chromium';
-    let chromiumExists = false;
+    // Check for Chrome/Chromium
+    const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROMIUM_PATH || '/usr/bin/google-chrome-stable';
+    let chromeExists = false;
     
     try {
-      chromiumExists = fs.existsSync(chromiumPath);
+      chromeExists = fs.existsSync(chromePath);
     } catch (error) {
-      console.error(`Error checking Chromium path: ${error.message}`);
+      console.error(`Error checking Chrome path: ${error.message}`);
+    }
+    
+    // Check Chrome version
+    let chromeVersion = 'unknown';
+    try {
+      if (chromeExists) {
+        exec(`${chromePath} --version`, (error, stdout, stderr) => {
+          if (!error) {
+            chromeVersion = stdout.trim();
+          }
+        });
+      }
+    } catch (error) {
+      console.error(`Error checking Chrome version: ${error.message}`);
     }
     
     // Check system information
@@ -31,7 +46,8 @@ module.exports = function(app) {
       arch: os.arch(),
       cpus: os.cpus().length,
       totalMemory: Math.round(os.totalmem() / (1024 * 1024)) + 'MB',
-      freeMemory: Math.round(os.freemem() / (1024 * 1024)) + 'MB'
+      freeMemory: Math.round(os.freemem() / (1024 * 1024)) + 'MB',
+      loadAvg: os.loadavg()
     };
     
     // Check directories
@@ -48,8 +64,8 @@ module.exports = function(app) {
     res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     
-    // Return status information
-    res.json({
+    // Return status information - always return 200 OK for Railway health checks
+    res.status(200).json({
       status: 'ok',
       service: 'psd-mockup-service',
       timestamp: new Date().toISOString(),
@@ -60,14 +76,16 @@ module.exports = function(app) {
         staticUrl: process.env.RAILWAY_STATIC_URL || null,
         serviceName: process.env.RAILWAY_SERVICE_NAME || null
       },
-      chromium: {
-        path: chromiumPath,
-        exists: chromiumExists
+      browser: {
+        path: chromePath,
+        exists: chromeExists,
+        version: chromeVersion
       },
       system: systemInfo,
       directories: dirInfo,
       uptime: Math.floor(process.uptime()) + ' seconds',
-      nodeVersion: process.version
+      nodeVersion: process.version,
+      memoryUsage: process.memoryUsage()
     });
   });
   

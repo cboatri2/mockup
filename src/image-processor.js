@@ -157,15 +157,15 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
   try {
     console.log('Launching Puppeteer for Photopea mockup generation...');
     
-    // Check for Chrome/Chromium path in environment variables
+    // Check for Chrome path in environment variables
     const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROMIUM_PATH;
     console.log(`Chrome path from env: ${chromePath}`);
     
-    // Define possible Chrome/Chromium paths
+    // Define possible Chrome paths for the Puppeteer Docker image
     const possiblePaths = [
       chromePath,
-      '/usr/bin/google-chrome',
       '/usr/bin/google-chrome-stable',
+      '/usr/bin/google-chrome',
       '/usr/bin/chromium',
       '/usr/bin/chromium-browser'
     ].filter(Boolean); // Remove undefined/null entries
@@ -175,47 +175,30 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
     for (const path of possiblePaths) {
       try {
         if (fs.existsSync(path)) {
-          console.log(`Found Chrome/Chromium executable at: ${path}`);
+          console.log(`Found Chrome executable at: ${path}`);
           executablePath = path;
           break;
         } else {
-          console.log(`Chrome/Chromium not found at: ${path}`);
+          console.log(`Chrome not found at: ${path}`);
         }
       } catch (err) {
         console.log(`Error checking path ${path}: ${err.message}`);
       }
     }
     
-    // Get list of Chrome/Chromium-related files for debugging
-    try {
-      if (fs.existsSync('/usr/bin')) {
-        const chromeFiles = fs.readdirSync('/usr/bin').filter(f => f.includes('chrome') || f.includes('chrom'));
-        console.log(`Chrome-related binaries in /usr/bin:`, chromeFiles);
-      }
-    } catch (err) {
-      console.log(`Error listing /usr/bin: ${err.message}`);
-    }
-    
-    if (executablePath) {
-      console.log(`Using Chrome/Chromium at: ${executablePath}`);
-    } else {
-      console.log('No Chrome/Chromium executable found in standard locations, trying to launch without specifying path');
-    }
-    
     // Configure Puppeteer launch options
     const launchOptions = {
-      headless: 'new',
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-software-rasterizer'
+        '--disable-gpu'
       ]
     };
     
-    // Only set executablePath if found
-    if (executablePath) {
+    // Only set executablePath if found and not running in the Puppeteer Docker image
+    if (executablePath && !process.env.PUPPETEER_SKIP_DOWNLOAD) {
       launchOptions.executablePath = executablePath;
     }
     
