@@ -10,7 +10,7 @@ nixPkgs = [
   "xorg.libxrandr",
   "xorg.libXcomposite",
   "xorg.libXdamage",
-  "xorg.libxfixes",
+  "xorg.libXfixes",
   "xorg.libxcb",
   "xorg.libXext",
   "xorg.libX11",
