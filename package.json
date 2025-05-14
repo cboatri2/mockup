@@ -17,6 +17,8 @@
     "express": "^5.1.0",
     "got": "^14.4.7",
     "node-fetch": "^3.3.2",
+    "psd": "^3.4.0",
+    "puppeteer": "^24.8.2",
     "sharp": "^0.34.1"
   },
   "devDependencies": {
