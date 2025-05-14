@@ -27,7 +27,7 @@
     "got": "^13.0.0",
     "node-fetch": "^3.3.2",
     "psd": "^3.4.0",
-    "puppeteer": "^21.9.0",
+    "puppeteer-core": "^21.9.0",
     "sharp": "^0.33.2"
   },
   "devDependencies": {

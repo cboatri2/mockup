@@ -9,8 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
 const PSD = require('psd');
-const puppeteer = require('puppeteer');
-const { executablePath } = require('puppeteer');
+const puppeteer = require('puppeteer-core');
 const { downloadDesignImage, cleanupFiles } = require('./downloader');
 
 // Templates directory
@@ -158,23 +157,24 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
   try {
     console.log('Launching Puppeteer for Photopea mockup generation...');
     
-    // Use Puppeteer's executablePath helper to find Chrome/Chromium
-    const browserPath = executablePath();
-    console.log('[Chromium Path]', browserPath);
+    // Get Chrome executable path from environment variables
+    const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || 
+                      process.env.CHROMIUM_PATH || 
+                      '/usr/bin/google-chrome-stable';
+    
+    console.log('[Chrome Path]', chromePath);
     
     // Configure Puppeteer launch options
     const launchOptions = {
       headless: true,
-      executablePath: browserPath,
+      executablePath: chromePath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--disable-software-rasterizer',
-        '--no-zygote',
         '--single-process',
-        '--disable-background-networking'
+        '--no-zygote'
       ]
     };
     
