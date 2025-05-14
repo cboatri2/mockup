@@ -16,6 +16,9 @@ const { downloadDesignImage, cleanupFiles } = require('./downloader');
 const TEMPLATES_DIR = path.join(__dirname, '..', 'assets', 'templates');
 const TEMP_DIR = path.join(__dirname, '..', 'temp');
 
+// Get placeholder layer name from environment variables
+const DESIGN_PLACEHOLDER_NAME = process.env.DESIGN_PLACEHOLDER_NAME || 'Design';
+
 /**
  * Generate a mockup using PSD.js
  * 
@@ -24,7 +27,7 @@ const TEMP_DIR = path.join(__dirname, '..', 'temp');
  * @param {string} designLayerName - Name of the layer to replace with the design
  * @returns {Promise<string>} - Path to the generated mockup
  */
-async function generateMockupWithPsdJs(templatePath, designImagePath, designLayerName = 'Design') {
+async function generateMockupWithPsdJs(templatePath, designImagePath, designLayerName = DESIGN_PLACEHOLDER_NAME) {
   try {
     console.log(`Loading PSD template: ${templatePath}`);
     const psd = PSD.fromFile(templatePath);
@@ -145,7 +148,7 @@ async function generateMockupWithPngTemplate(templatePath, designImagePath) {
  * @param {string} designLayerName - Name of the layer to replace with the design
  * @returns {Promise<string>} - Path to the generated mockup
  */
-async function generateMockupWithPhotopea(templatePath, designImagePath, designLayerName = 'Design') {
+async function generateMockupWithPhotopea(templatePath, designImagePath, designLayerName = DESIGN_PLACEHOLDER_NAME) {
   let browser = null;
   
   try {
@@ -357,6 +360,7 @@ function getTemplateType(templatePath) {
  * @param {string} params.designId - ID of the design
  * @param {string} params.sku - SKU of the product
  * @param {string} params.mode - Mode of mockup generation ('psdjs', 'photopea', or 'auto')
+ * @param {string} params.designLayerName - Name of the design layer in the PSD
  * @returns {Promise<string>} - Path to the generated mockup
  */
 async function generateMockup(params) {
@@ -365,7 +369,8 @@ async function generateMockup(params) {
     designImagePath,
     designId,
     sku,
-    mode = 'auto'
+    mode = 'auto',
+    designLayerName = DESIGN_PLACEHOLDER_NAME
   } = params;
   
   try {
@@ -388,23 +393,23 @@ async function generateMockup(params) {
         if (mode === 'photopea') {
           // Only use Photopea
           console.log(`Using Photopea mode for mockup generation`);
-          return generateMockupWithPhotopea(templatePath, designImagePath);
+          return generateMockupWithPhotopea(templatePath, designImagePath, designLayerName);
         } else if (mode === 'psdjs') {
           // Only use PSD.js
           console.log(`Using PSD.js mode for mockup generation`);
-          return generateMockupWithPsdJs(templatePath, designImagePath);
+          return generateMockupWithPsdJs(templatePath, designImagePath, designLayerName);
         } else {
           // Auto mode - try PSD.js first, fall back to Photopea if it fails
           try {
             console.log(`Trying PSD.js first for mockup generation`);
-            const mockupPath = await generateMockupWithPsdJs(templatePath, designImagePath);
+            const mockupPath = await generateMockupWithPsdJs(templatePath, designImagePath, designLayerName);
             return mockupPath;
           } catch (psdError) {
             console.error(`PSD.js approach failed: ${psdError.message}`);
             console.log(`Falling back to Photopea for mockup generation`);
             
             try {
-              const mockupPath = await generateMockupWithPhotopea(templatePath, designImagePath);
+              const mockupPath = await generateMockupWithPhotopea(templatePath, designImagePath, designLayerName);
               return mockupPath;
             } catch (photopeaError) {
               console.error(`Photopea approach also failed: ${photopeaError.message}`);

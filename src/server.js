@@ -5,6 +5,7 @@ const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 const { downloadDesignImage, cleanupFiles } = require("./downloader");
+const axios = require('axios');
 
 // Import image processor (with PSD.js functionality)
 const imageProcessor = require("./image-processor");
@@ -14,6 +15,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const PUBLIC_PATH = process.env.PUBLIC_PATH || '/mockups';
+
+// Template configuration
+const USE_REMOTE_TEMPLATES = !!process.env.PSD_TEMPLATE_URL;
+const PSD_TEMPLATE_URL = process.env.PSD_TEMPLATE_URL;
+const DESIGN_PLACEHOLDER_NAME = process.env.DESIGN_PLACEHOLDER_NAME || 'Design';
 
 // Define template and temp directories
 const TEMPLATES_DIR = path.join(__dirname, '..', 'assets', 'templates');
@@ -41,12 +47,13 @@ app.use(express.json());
 /**
  * Find the best template for a given SKU
  * @param {string} sku - The product SKU
- * @returns {string|null} - Path to the template or null if not found
+ * @returns {Promise<string|null>} - Path to the template or null if not found
  */
-function findTemplateForSku(sku) {
-  // Look for template with exact SKU match in different formats
+async function findTemplateForSku(sku) {
+  // First check local templates - faster than remote retrieval
   const templateFormats = ['.psd', '.png', '.jpg', '.jpeg'];
   
+  // Look for template with exact SKU match in different formats
   for (const format of templateFormats) {
     const exactPath = path.join(TEMPLATES_DIR, `${sku}${format}`);
     if (fs.existsSync(exactPath)) {
@@ -59,6 +66,43 @@ function findTemplateForSku(sku) {
     const defaultPath = path.join(TEMPLATES_DIR, `default${format}`);
     if (fs.existsSync(defaultPath)) {
       return defaultPath;
+    }
+  }
+  
+  // If remote templates are enabled and no local template was found, try to download
+  if (USE_REMOTE_TEMPLATES && PSD_TEMPLATE_URL) {
+    try {
+      console.log(`Attempting to download template for SKU ${sku} from remote source`);
+      
+      // Try to download SKU-specific template
+      const remoteTemplatePath = path.join(TEMP_DIR, `${sku}.psd`);
+      const remoteTemplateUrl = `${PSD_TEMPLATE_URL}/${sku}.psd`;
+      
+      try {
+        const response = await axios.get(remoteTemplateUrl, { responseType: 'arraybuffer' });
+        fs.writeFileSync(remoteTemplatePath, response.data);
+        console.log(`Downloaded template from ${remoteTemplateUrl}`);
+        return remoteTemplatePath;
+      } catch (error) {
+        console.log(`No SKU-specific template found at ${remoteTemplateUrl}, trying default`);
+        
+        // Try to download default template
+        const defaultTemplatePath = path.join(TEMP_DIR, `default.psd`);
+        const defaultTemplateUrl = `${PSD_TEMPLATE_URL}/default.psd`;
+        
+        try {
+          const response = await axios.get(defaultTemplateUrl, { responseType: 'arraybuffer' });
+          fs.writeFileSync(defaultTemplatePath, response.data);
+          console.log(`Downloaded default template from ${defaultTemplateUrl}`);
+          return defaultTemplatePath;
+        } catch (defaultError) {
+          console.log(`No default template found at ${defaultTemplateUrl}`);
+          return null;
+        }
+      }
+    } catch (error) {
+      console.error(`Error downloading remote template: ${error.message}`);
+      return null;
     }
   }
   
@@ -77,7 +121,8 @@ app.get("/health", (req, res) => {
       psdjs: true,
       photopea: true,
       pngTemplates: true,
-      basicMockup: true
+      basicMockup: true,
+      remoteTemplates: USE_REMOTE_TEMPLATES
     }
   });
 });
@@ -112,7 +157,7 @@ app.post("/render-mockup", async (req, res) => {
     console.log(`Mockup request: design=${designId}, sku=${sku}, mode=${processingMode}, image=${imageUrl}`);
     
     // Find the best template for this SKU
-    const templatePath = findTemplateForSku(sku);
+    const templatePath = await findTemplateForSku(sku);
     
     if (templatePath) {
       console.log(`Found template for SKU ${sku}: ${templatePath}`);
@@ -161,7 +206,8 @@ app.post("/render-mockup", async (req, res) => {
         designImagePath,
         designId,
         sku,
-        mode: processingMode
+        mode: processingMode,
+        designLayerName: DESIGN_PLACEHOLDER_NAME
       });
       
       // Determine which method was used based on file type and mode
