@@ -10,6 +10,9 @@ const axios = require('axios');
 // Import image processor (with PSD.js functionality)
 const imageProcessor = require("./image-processor");
 
+// Import routes
+const healthRoutes = require('./routes/health');
+
 // Setup app
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -133,22 +136,8 @@ async function findTemplateForSku(sku) {
   return null;
 }
 
-// Health check endpoint
-app.get("/health", (req, res) => {
-  res.json({ 
-    ok: true, 
-    version: "1.0.0", 
-    baseUrl: BASE_URL,
-    env: process.env.NODE_ENV || 'development',
-    features: {
-      psdjs: true,
-      photopea: true,
-      pngTemplates: true,
-      basicMockup: true,
-      remoteTemplates: USE_REMOTE_TEMPLATES
-    }
-  });
-});
+// Register routes
+healthRoutes(app);
 
 // CORS test endpoint
 app.get("/cors-test", (req, res) => {
