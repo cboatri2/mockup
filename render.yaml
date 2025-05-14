@@ -11,7 +11,7 @@ services:
       - key: PORT
         sync: false
       - key: BASE_URL
-        value: https://psd-mockup-service.onrender.com
+        value: https://mockup-jw5b.onrender.com
       - key: CORS_ORIGIN
         value: '*'
       - key: NODE_ENV
@@ -21,4 +21,6 @@ services:
       - key: CHROMIUM_PATH
         value: /usr/bin/chromium-browser
       - key: DESIGN_PLACEHOLDER_NAME
-        value: 'Design Placeholder' 
+        value: 'Design Placeholder'
+      - key: PSD_TEMPLATE_URL
+        value: 'https://pfyspfutnfnap3ka.public.blob.vercel-storage.com/templates/topper-mockup-front-clean-22MoFTIrbKI7T0L7qlkzY48FuYYgi7.psd' 
