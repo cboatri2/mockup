@@ -17,9 +17,13 @@ RUN apt-get update --allow-insecure-repositories || apt-get update --allow-unaut
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Configure npm
+RUN npm config set loglevel verbose
+RUN npm config set registry https://registry.npmjs.org/
+
 # Copy package files and install dependencies
 COPY package*.json ./
-RUN npm ci
+RUN npm install --no-optional --prefer-offline || npm install --no-optional
 
 # Set environment variables for Puppeteer
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
