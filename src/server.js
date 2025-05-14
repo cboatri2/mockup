@@ -42,10 +42,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// CORS preflight handler
-app.options('*', (req, res) => {
-  res.status(200).end();
-});
+// No need for explicit options handler - the cors middleware handles this
 
 // Health check endpoint
 app.get("/health", (req, res) => {
