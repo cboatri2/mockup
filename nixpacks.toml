@@ -8,7 +8,7 @@ nixPkgs = [
   "alsa-lib",
   "xorg.libxshmfence",
   "xorg.libxrandr",
-  "xorg.libxcomposite",
+  "xorg.libXcomposite",
   "xorg.libxdamage",
   "xorg.libxfixes",
   "xorg.libxcb",
