@@ -1,20 +1,85 @@
-// Ultra-simple Express server for Railway
+// Express server for mockup generation
+require('dotenv').config();
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
+const { downloadDesignImage, cleanupFiles } = require("./downloader");
+
+// Import image processor (with PSD.js functionality)
+const imageProcessor = require("./image-processor");
 
 // Setup app
 const app = express();
 const PORT = process.env.PORT || 3000;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const PUBLIC_PATH = process.env.PUBLIC_PATH || '/mockups';
+
+// Define template and temp directories
+const TEMPLATES_DIR = path.join(__dirname, '..', 'assets', 'templates');
+const TEMP_DIR = path.join(__dirname, '..', 'temp');
+
+// Ensure directories exist
+if (!fs.existsSync(TEMPLATES_DIR)) {
+  fs.mkdirSync(TEMPLATES_DIR, { recursive: true });
+  console.log(`Created templates directory: ${TEMPLATES_DIR}`);
+}
+
+if (!fs.existsSync(TEMP_DIR)) {
+  fs.mkdirSync(TEMP_DIR, { recursive: true });
+  console.log(`Created temp directory: ${TEMP_DIR}`);
+}
 
 // Basic middleware
-app.use(cors());
+app.use(cors({
+  origin: '*', // Allow all origins for testing
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
+
+/**
+ * Find the best template for a given SKU
+ * @param {string} sku - The product SKU
+ * @returns {string|null} - Path to the template or null if not found
+ */
+function findTemplateForSku(sku) {
+  // Look for template with exact SKU match in different formats
+  const templateFormats = ['.psd', '.png', '.jpg', '.jpeg'];
+  
+  for (const format of templateFormats) {
+    const exactPath = path.join(TEMPLATES_DIR, `${sku}${format}`);
+    if (fs.existsSync(exactPath)) {
+      return exactPath;
+    }
+  }
+  
+  // If no exact match, look for default templates
+  for (const format of templateFormats) {
+    const defaultPath = path.join(TEMPLATES_DIR, `default${format}`);
+    if (fs.existsSync(defaultPath)) {
+      return defaultPath;
+    }
+  }
+  
+  // No template found
+  return null;
+}
 
 // Health check endpoint
 app.get("/health", (req, res) => {
-  res.json({ ok: true, version: "1.0.0" });
+  res.json({ 
+    ok: true, 
+    version: "1.0.0", 
+    baseUrl: BASE_URL,
+    env: process.env.NODE_ENV || 'development',
+    features: {
+      psdjs: true,
+      photopea: true,
+      pngTemplates: true,
+      basicMockup: true
+    }
+  });
 });
 
 // CORS test endpoint
@@ -22,14 +87,18 @@ app.get("/cors-test", (req, res) => {
   res.json({
     success: true,
     message: "CORS is working correctly",
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    headers: req.headers
   });
 });
 
-// Mockup generation - simplified to just return the original image
-app.post("/render-mockup", (req, res) => {
+// Endpoint to serve mockup images directly
+app.use('/mockups', express.static(TEMP_DIR));
+
+// Mockup generation with advanced functionality
+app.post("/render-mockup", async (req, res) => {
   try {
-    const { designId, sku, imageUrl } = req.body;
+    const { designId, sku, imageUrl, mode } = req.body;
     
     if (!designId || !sku || !imageUrl) {
       return res.status(400).json({ 
@@ -38,16 +107,108 @@ app.post("/render-mockup", (req, res) => {
       });
     }
     
-    console.log(`Mockup request: design=${designId}, sku=${sku}`);
+    // Determine processing mode (default to 'auto')
+    const processingMode = mode || 'auto';
+    console.log(`Mockup request: design=${designId}, sku=${sku}, mode=${processingMode}, image=${imageUrl}`);
     
-    // Simply return the original image URL as mockup
-    // This avoids any complex processing that might cause issues
+    // Find the best template for this SKU
+    const templatePath = findTemplateForSku(sku);
+    
+    if (templatePath) {
+      console.log(`Found template for SKU ${sku}: ${templatePath}`);
+    } else {
+      console.log(`No template found for SKU: ${sku}`);
+    }
+    
+    // Create a unique temp directory for this job
+    const jobId = `${designId}-${sku}-${Date.now()}`;
+    const jobDir = path.join(TEMP_DIR, jobId);
+    
+    if (!fs.existsSync(jobDir)) {
+      fs.mkdirSync(jobDir, { recursive: true });
+    }
+    
+    // First, try to download the design image
+    let designImagePath;
+    try {
+      designImagePath = await downloadDesignImage(imageUrl, jobDir);
+      console.log(`Design image downloaded to: ${designImagePath}`);
+    } catch (downloadError) {
+      console.error(`Failed to download design image: ${downloadError.message}`);
+      // If we fail to download the image, return an error
+      return res.json({
+        success: false,
+        error: `Failed to download design image: ${downloadError.message}`,
+        mockupUrl: imageUrl,
+        designId,
+        sku
+      });
+    }
+    
+    let mockupPath;
+    let mockupUrl;
+    let processingStatus = {
+      templateFound: !!templatePath,
+      templateType: templatePath ? path.extname(templatePath).toLowerCase().substring(1) : null,
+      methodUsed: null,
+      fallbackUsed: false
+    };
+    
+    // Generate mockup using the appropriate method based on template type
+    try {
+      mockupPath = await imageProcessor.generateMockup({
+        templatePath,
+        designImagePath,
+        designId,
+        sku,
+        mode: processingMode
+      });
+      
+      // Determine which method was used based on file type and mode
+      if (!templatePath) {
+        processingStatus.methodUsed = 'basic';
+      } else if (processingStatus.templateType === 'png' || 
+                processingStatus.templateType === 'jpg' || 
+                processingStatus.templateType === 'jpeg') {
+        processingStatus.methodUsed = 'png';
+      } else if (processingMode === 'psdjs') {
+        processingStatus.methodUsed = 'psdjs';
+      } else if (processingMode === 'photopea') {
+        processingStatus.methodUsed = 'photopea';
+      } else {
+        // For auto mode, we can't be sure which was used, so we'll say "advanced"
+        processingStatus.methodUsed = 'advanced';
+      }
+      
+      console.log(`Mockup generated at: ${mockupPath} using ${processingStatus.methodUsed} method`);
+    } catch (mockupError) {
+      console.error(`Failed to generate mockup: ${mockupError.message}`);
+      // If all mockup generation methods fail, fall back to basic mockup
+      mockupPath = await imageProcessor.generateBasicMockup(designImagePath, `${sku} mockup`);
+      console.log(`Fallback basic mockup generated at: ${mockupPath}`);
+      
+      processingStatus.methodUsed = 'basic';
+      processingStatus.fallbackUsed = true;
+    }
+    
+    // Create a URL for the mockup using configured BASE_URL
+    const mockupFilename = path.basename(mockupPath);
+    mockupUrl = `${BASE_URL}${PUBLIC_PATH}/${mockupFilename}`;
+    
+    // Clean up temporary files (except the final mockup)
+    try {
+      await cleanupFiles(designImagePath);
+    } catch (cleanupError) {
+      console.error(`Error during cleanup: ${cleanupError.message}`);
+    }
+    
     return res.json({
       success: true,
-      mockupUrl: imageUrl,
+      mockupUrl,
       designId,
       sku,
-      message: "Simplified mockup service - returns original image"
+      processingDetails: processingStatus,
+      localPath: mockupPath // For debugging
     });
     
   } catch (error) {
@@ -63,7 +224,9 @@ app.post("/render-mockup", (req, res) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`======================================`);
-  console.log(`Ultra-simple Mockup Service running on port ${PORT}`);
-  console.log(`All /render-mockup requests will return original image`);
+  console.log(`PSD Mockup Service running on port ${PORT}`);
+  console.log(`BASE URL: ${BASE_URL}`);
+  console.log(`TEMPLATES DIR: ${TEMPLATES_DIR}`);
+  console.log(`TEMP DIR: ${TEMP_DIR}`);
   console.log(`======================================`);
 });

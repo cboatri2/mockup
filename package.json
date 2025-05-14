@@ -3,14 +3,18 @@
   "version": "1.0.0",
   "main": "src/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node run-tests.js",
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "config": "cp env.example .env",
+    "test-mockup": "node test-mockup.js",
+    "create-templates": "node create-test-template.js",
+    "clean": "rm -rf temp/* && echo 'Temp directory cleaned'"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "PSD Mockup Service for Topperswap - generates product mockups from design images",
   "dependencies": {
     "@vercel/blob": "^1.0.1",
     "axios": "^1.9.0",

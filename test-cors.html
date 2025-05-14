@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Railway Mockup Service Tester</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        button { margin: 10px; padding: 10px; cursor: pointer; }
+        #results { margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Railway Mockup Service Test</h1>
+    <p>Click the buttons below to test different URL formats for your Railway service.</p>
+    
+    <div>
+        <h3>Test Health Endpoint:</h3>
+        <button onclick="testEndpoint('https://topperswap-club-production.up.railway.app/health')">Test HTTPS (default)</button>
+        <button onclick="testEndpoint('https://topperswap-club-production.up.railway.app:8080/health')">Test HTTPS with Port</button>
+        <button onclick="testEndpoint('http://topperswap-club-production.up.railway.app/health')">Test HTTP</button>
+        <button onclick="testEndpoint('http://topperswap-club-production.up.railway.app:8080/health')">Test HTTP with Port</button>
+        <button onclick="testEndpoint('//topperswap-club-production.up.railway.app/health')">Test Protocol-relative</button>
+    </div>
+    
+    <div>
+        <h3>Test CORS Endpoint:</h3>
+        <button onclick="testEndpoint('https://topperswap-club-production.up.railway.app/cors-test')">Test CORS (HTTPS)</button>
+        <button onclick="testEndpoint('http://topperswap-club-production.up.railway.app/cors-test')">Test CORS (HTTP)</button>
+    </div>
+    
+    <div>
+        <h3>Test Render Mockup Endpoint:</h3>
+        <button onclick="testMockupEndpoint('https://topperswap-club-production.up.railway.app/render-mockup')">Test Mockup (HTTPS)</button>
+        <button onclick="testMockupEndpoint('http://topperswap-club-production.up.railway.app/render-mockup')">Test Mockup (HTTP)</button>
+    </div>
+    
+    <div id="results">
+        <p>Results will appear here...</p>
+    </div>
+    
+    <script>
+        async function testEndpoint(url) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = `<p>Testing: ${url}...</p>`;
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                resultsDiv.innerHTML = `
+                    <p class="success">✅ Success! Status: ${response.status}</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                resultsDiv.innerHTML = `
+                    <p class="error">❌ Error: ${error.message}</p>
+                    <pre>${error.stack}</pre>
+                `;
+            }
+        }
+        
+        async function testMockupEndpoint(url) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = `<p>Testing mockup endpoint: ${url}...</p>`;
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        designId: 'test-design-' + Date.now(),
+                        sku: 'test-sku-123',
+                        imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/280px-PNG_transparency_demonstration_1.png'
+                    })
+                });
+                
+                const data = await response.json();
+                resultsDiv.innerHTML = `
+                    <p class="success">✅ Success! Status: ${response.status}</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+                
+                if (data.mockupUrl) {
+                    resultsDiv.innerHTML += `
+                        <p>Generated mockup:</p>
+                        <img src="${data.mockupUrl}" style="max-width: 300px; border: 1px solid #ccc; padding: 5px;" />
+                    `;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `
+                    <p class="error">❌ Error: ${error.message}</p>
+                    <pre>${error.stack}</pre>
+                `;
+            }
+        }
+    </script>
+</body>
+</html> 

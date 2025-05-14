@@ -1,17 +1,15 @@
 /**
  * PSD Mockup Generator - Image Processor
  * 
- * This module processes PSD mockup templates and overlays user designs on them.
- * It provides two approaches:
- * 1. Native PSD.js processing - Using psd.js for basic PSD manipulation
- * 2. Puppeteer with Photopea - For more complex PSDs with advanced layer effects
+ * This module processes PSD templates and overlays user designs on them.
+ * Supports both PSD.js processing and Puppeteer+Photopea for advanced effects
+ * Also supports simpler PNG template processing
  */
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
 const PSD = require('psd');
 const puppeteer = require('puppeteer');
-const { put } = require('@vercel/blob');
 const { downloadDesignImage, cleanupFiles } = require('./downloader');
 
 // Templates directory
@@ -91,6 +89,55 @@ async function generateMockupWithPsdJs(templatePath, designImagePath, designLaye
 }
 
 /**
+ * Generate a mockup using a PNG template
+ * 
+ * @param {string} templatePath - Path to the PNG template
+ * @param {string} designImagePath - Path to the design image
+ * @returns {Promise<string>} - Path to the generated mockup
+ */
+async function generateMockupWithPngTemplate(templatePath, designImagePath) {
+  try {
+    console.log(`Loading PNG template: ${templatePath}`);
+    
+    // Get template metadata
+    const templateMetadata = await sharp(templatePath).metadata();
+    const { width: templateWidth, height: templateHeight } = templateMetadata;
+    
+    // Calculate design placement (assuming a centered design with some margins)
+    // These values would normally be defined per template, but we'll use defaults
+    const designArea = {
+      left: 50,
+      top: 50,
+      width: templateWidth - 100,
+      height: templateHeight - 100
+    };
+    
+    // Resize design image to fit the design area
+    const designImage = await sharp(designImagePath)
+      .resize(designArea.width, designArea.height, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .toBuffer();
+    
+    // Composite the design onto the template
+    const outputPath = path.join(TEMP_DIR, `mockup-${Date.now()}.png`);
+    
+    await sharp(templatePath)
+      .composite([
+        {
+          input: designImage,
+          left: designArea.left,
+          top: designArea.top
+        }
+      ])
+      .toFile(outputPath);
+    
+    return outputPath;
+  } catch (error) {
+    console.error('Error generating mockup with PNG template:', error);
+    throw error;
+  }
+}
+
+/**
  * Generate a mockup using Puppeteer and Photopea (for complex PSDs)
  * 
  * @param {string} templatePath - Path to the PSD template
@@ -111,10 +158,11 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
     const page = await browser.newPage();
     
     // Open Photopea
-    await page.goto('https://www.photopea.com', { waitUntil: 'networkidle2' });
+    await page.goto('https://www.photopea.com', { waitUntil: 'networkidle2', timeout: 60000 });
     
     // Wait for Photopea to load
     await page.waitForSelector('#appload', { hidden: true, timeout: 60000 });
+    console.log('Photopea loaded successfully');
     
     // Open PSD file
     console.log('Opening PSD template in Photopea...');
@@ -122,8 +170,8 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
     const psdBase64 = psdFile.toString('base64');
     
     await page.evaluate((psdBase64) => {
-      const arr = PP.arrayBufferFromBase64(psdBase64);
-      app.open(arr, null, true);
+      const arr = window.PP.arrayBufferFromBase64(psdBase64);
+      window.app.open(arr, null, true);
     }, psdBase64);
     
     // Wait for file to open
@@ -132,7 +180,7 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
     // Find design layer
     console.log(`Finding design layer: ${designLayerName}`);
     const layerExists = await page.evaluate((designLayerName) => {
-      const layers = app.activeDocument.layers;
+      const layers = window.app.activeDocument.layers;
       
       function findLayer(layers, name) {
         for (let i = 0; i < layers.length; i++) {
@@ -159,8 +207,8 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
     const designBase64 = designFile.toString('base64');
     
     await page.evaluate((designBase64) => {
-      const arr = PP.arrayBufferFromBase64(designBase64);
-      app.open(arr, null, true);
+      const arr = window.PP.arrayBufferFromBase64(designBase64);
+      window.app.open(arr, null, true);
     }, designBase64);
     
     // Wait for design to open
@@ -168,9 +216,9 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
     
     // Copy all pixels from design
     await page.evaluate(() => {
-      app.activeDocument.selection.selectAll();
-      app.activeDocument.selection.copy();
-      app.activeDocument.close();
+      window.app.activeDocument.selection.selectAll();
+      window.app.activeDocument.selection.copy();
+      window.app.activeDocument.close();
     });
     
     // Paste into design layer
@@ -187,26 +235,19 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
         return null;
       }
       
-      const designLayer = findLayer(app.activeDocument.layers, designLayerName);
-      app.activeDocument.activeLayer = designLayer;
+      const designLayer = findLayer(window.app.activeDocument.layers, designLayerName);
+      window.app.activeDocument.activeLayer = designLayer;
       
       // Check if layer has a smart object
       if (designLayer.smartObject) {
-        app.activeDocument.activeLayer.editSmartObject();
-        app.activeDocument.selection.selectAll();
-        app.activeDocument.paste();
-        app.runMenuItem('Save');
-        app.runMenuItem('Close');
+        window.app.activeDocument.activeLayer.editSmartObject();
+        window.app.activeDocument.selection.selectAll();
+        window.app.activeDocument.paste();
+        window.app.runMenuItem('Save');
+        window.app.runMenuItem('Close');
       } else {
         // Regular layer - paste directly
-        const bounds = designLayer.bounds;
-        app.activeDocument.selection.select([
-          [bounds[0], bounds[1]],
-          [bounds[2], bounds[1]],
-          [bounds[2], bounds[3]],
-          [bounds[0], bounds[3]]
-        ]);
-        app.activeDocument.paste();
+        window.app.activeDocument.paste();
       }
     }, designLayerName);
     
@@ -216,7 +257,7 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
     // Export as PNG
     console.log('Exporting mockup...');
     const outputBase64 = await page.evaluate(() => {
-      return app.activeDocument.saveToBase64('png');
+      return window.app.activeDocument.saveToBase64('png');
     });
     
     // Save the PNG
@@ -230,164 +271,57 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
   } finally {
     if (browser) {
       await browser.close();
+      console.log('Puppeteer browser closed');
     }
   }
 }
 
 /**
- * Generate a product mockup
+ * Generate a basic fallback mockup when no template is available
  * 
- * @param {Object} options - Mockup generation options
- * @param {string} options.designId - The design ID
- * @param {string} options.sku - The product SKU
- * @param {string} options.imageUrl - The design image URL
- * @returns {Promise<string>} - URL to the generated mockup
- */
-async function generateMockup(params) {
-  const { designId, sku, imageUrl } = params;
-  
-  try {
-    console.log(`Starting mockup generation for design ${designId}, product ${sku}`);
-    
-    // Create temporary directories
-    const designDir = path.join(TEMP_DIR, designId);
-    fs.mkdirSync(designDir, { recursive: true });
-    
-    // Download the design image
-    console.log(`Downloading design image from ${imageUrl}`);
-    let designImagePath;
-    try {
-      designImagePath = await downloadDesignImage(imageUrl, designDir);
-    } catch (downloadError) {
-      console.error('Error downloading design image:', downloadError);
-      // Create a simple placeholder image since we can't download
-      console.log('Creating fallback placeholder image');
-      designImagePath = path.join(designDir, 'fallback-image.png');
-      await createFallbackImage(designImagePath, 'Design Image Placeholder');
-    }
-    
-    // Get template file based on SKU
-    let templatePath = path.join(TEMPLATES_DIR, `${sku}.psd`);
-    
-    // Check if template exists, if not use a default
-    const templateExists = fs.existsSync(templatePath);
-    let finalTemplatePath;
-    
-    if (templateExists) {
-      finalTemplatePath = templatePath;
-    } else {
-      // Look for default.psd
-      const defaultPath = path.join(TEMPLATES_DIR, 'default.psd');
-      if (fs.existsSync(defaultPath)) {
-        console.log(`No template found for SKU ${sku}, using default template`);
-        finalTemplatePath = defaultPath;
-      } else {
-        // No PSD template available, generate a mockup directly from the design image
-        console.log(`No templates available. Generating basic mockup from design image.`);
-        return generateBasicMockup(designImagePath, designId, sku);
-      }
-    }
-    
-    // Try to generate with PSD.js first
-    let mockupImagePath = null;
-    try {
-      mockupImagePath = await generateMockupWithPsdJs(finalTemplatePath, designImagePath);
-    } catch (psdJsError) {
-      console.warn('PSD.js processing failed, falling back to Photopea:', psdJsError.message);
-      try {
-        mockupImagePath = await generateMockupWithPhotopea(finalTemplatePath, designImagePath);
-      } catch (photopeaError) {
-        console.error('Photopea processing also failed:', photopeaError.message);
-        // If all processing methods fail, just use the basic mockup
-        return generateBasicMockup(designImagePath, designId, sku);
-      }
-    }
-    
-    console.log(`Mockup generated at ${mockupImagePath}`);
-    
-    // Upload to Vercel Blob
-    const mockupFile = fs.readFileSync(mockupImagePath);
-    const blobName = `mockups/${sku}/${designId}.jpg`;
-    
-    console.log(`Uploading mockup to blob storage: ${blobName}`);
-    const blob = await put(blobName, mockupFile, {
-      access: 'public',
-      contentType: 'image/jpeg'
-    });
-    
-    const uploadedUrl = blob.url;
-    console.log(`Mockup uploaded to ${uploadedUrl}`);
-    
-    return uploadedUrl;
-  } catch (error) {
-    console.error('Error generating mockup:', error);
-    throw error;
-  } finally {
-    // Clean up temporary files
-    try {
-      const filesToCleanup = [designImagePath, mockupImagePath].filter(Boolean);
-      await cleanupFiles(filesToCleanup);
-    } catch (cleanupError) {
-      console.warn('Error during cleanup:', cleanupError);
-    }
-  }
-}
-
-/**
- * Generate a basic mockup when no templates are available
  * @param {string} designImagePath - Path to the design image
- * @param {string} designId - The design ID
- * @param {string} sku - The product SKU
- * @returns {Promise<string>} - URL to the generated mockup
+ * @param {string} text - Text to overlay on the mockup
+ * @returns {Promise<string>} - Path to the generated mockup
  */
-async function generateBasicMockup(designImagePath, designId, sku) {
+async function generateBasicMockup(designImagePath, text = 'Mockup') {
   try {
-    console.log('Generating basic mockup without PSD template');
+    const outputPath = path.join(TEMP_DIR, `basic-mockup-${Date.now()}.png`);
     
-    // Create a new image with a border and shadow
-    const outputPath = path.join(TEMP_DIR, `mockup-${designId}-${Date.now()}.jpg`);
+    // Create a simple colored background with the design centered
+    const designBuffer = fs.readFileSync(designImagePath);
+    const designImage = sharp(designBuffer);
+    const metadata = await designImage.metadata();
     
-    await sharp(designImagePath)
-      // Resize to a standard size
-      .resize(800, 800, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
-      // Add a border and drop shadow (using composite for shadow effect)
-      .composite([
-        {
-          input: Buffer.from(`
-            <svg width="820" height="820" xmlns="http://www.w3.org/2000/svg">
-              <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-                <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity="0.3"/>
-              </filter>
-              <rect x="10" y="10" width="800" height="800" rx="10" ry="10" fill="#ffffff" filter="url(#shadow)"/>
-            </svg>`
-          ),
-          blend: 'over'
-        }
-      ])
-      .composite([
-        {
-          input: await sharp(designImagePath)
-            .resize(780, 780, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
-            .toBuffer(),
-          top: 20,
-          left: 20
-        }
-      ])
-      .jpeg({ quality: 90 })
-      .toFile(outputPath);
+    // Create a larger canvas with a light gray background
+    const width = Math.max(metadata.width, 800);
+    const height = Math.max(metadata.height, 800);
     
-    // Upload to Vercel Blob
-    const mockupFile = fs.readFileSync(outputPath);
-    const blobName = `mockups/${sku}/${designId}.jpg`;
+    const canvasWidth = width * 1.5;
+    const canvasHeight = height * 1.5;
     
-    console.log(`Uploading basic mockup to blob storage: ${blobName}`);
-    const blob = await put(blobName, mockupFile, {
-      access: 'public',
-      contentType: 'image/jpeg'
-    });
+    // Position the design in the center
+    const left = Math.floor((canvasWidth - metadata.width) / 2);
+    const top = Math.floor((canvasHeight - metadata.height) / 2);
     
-    await cleanupFiles(outputPath);
-    return blob.url;
+    // Create the mockup
+    await sharp({
+      create: {
+        width: canvasWidth,
+        height: canvasHeight,
+        channels: 4,
+        background: { r: 240, g: 240, b: 240, alpha: 1 }
+      }
+    })
+    .composite([
+      {
+        input: designBuffer,
+        left,
+        top
+      }
+    ])
+    .toFile(outputPath);
+    
+    return outputPath;
   } catch (error) {
     console.error('Error generating basic mockup:', error);
     throw error;
@@ -395,44 +329,111 @@ async function generateBasicMockup(designImagePath, designId, sku) {
 }
 
 /**
- * Creates a fallback image when download fails
- * @param {string} outputPath - Where to save the generated image 
- * @param {string} text - Text to display on the image
- * @returns {Promise<void>}
+ * Determine template type from file extension
+ * 
+ * @param {string} templatePath - Path to the template file
+ * @returns {string} - Template type ('psd', 'png', 'unknown')
  */
-async function createFallbackImage(outputPath, text = 'Placeholder') {
-  return new Promise((resolve, reject) => {
-    try {
-      // Create a simple 500x500 colored image with text
-      const width = 500;
-      const height = 500;
-      const svg = `
-        <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-          <rect width="100%" height="100%" fill="#f0f0f0"/>
-          <text x="50%" y="50%" font-family="Arial" font-size="24" fill="#333" text-anchor="middle" dominant-baseline="middle">${text}</text>
-        </svg>
-      `;
+function getTemplateType(templatePath) {
+  if (!templatePath) return 'unknown';
+  
+  const extension = path.extname(templatePath).toLowerCase();
+  
+  if (extension === '.psd') {
+    return 'psd';
+  } else if (['.png', '.jpg', '.jpeg'].includes(extension)) {
+    return 'png'; // treat all image formats as png for simplicity
+  }
+  
+  return 'unknown';
+}
+
+/**
+ * Main function to generate a mockup based on parameters
+ * 
+ * @param {Object} params - Parameters for mockup generation
+ * @param {string} params.templatePath - Path to the PSD template
+ * @param {string} params.designImagePath - Path to the design image
+ * @param {string} params.designId - ID of the design
+ * @param {string} params.sku - SKU of the product
+ * @param {string} params.mode - Mode of mockup generation ('psdjs', 'photopea', or 'auto')
+ * @returns {Promise<string>} - Path to the generated mockup
+ */
+async function generateMockup(params) {
+  const {
+    templatePath,
+    designImagePath,
+    designId,
+    sku,
+    mode = 'auto'
+  } = params;
+  
+  try {
+    // Check if template exists
+    if (templatePath && fs.existsSync(templatePath)) {
+      console.log(`Template found: ${templatePath}`);
       
-      // Convert SVG to PNG using sharp
-      sharp(Buffer.from(svg))
-        .png()
-        .toFile(outputPath)
-        .then(() => {
-          console.log(`Created fallback image at ${outputPath}`);
-          resolve(outputPath);
-        })
-        .catch(err => {
-          console.error('Error creating fallback image:', err);
-          reject(err);
-        });
-    } catch (error) {
-      console.error('Error in createFallbackImage:', error);
-      reject(error);
+      // Determine template type
+      const templateType = getTemplateType(templatePath);
+      console.log(`Template type: ${templateType}`);
+      
+      // If it's a PNG template, use the PNG processor
+      if (templateType === 'png') {
+        console.log('Using PNG template processor');
+        return generateMockupWithPngTemplate(templatePath, designImagePath);
+      }
+      
+      // For PSD templates, choose the processing approach based on mode
+      if (templateType === 'psd') {
+        if (mode === 'photopea') {
+          // Only use Photopea
+          console.log(`Using Photopea mode for mockup generation`);
+          return generateMockupWithPhotopea(templatePath, designImagePath);
+        } else if (mode === 'psdjs') {
+          // Only use PSD.js
+          console.log(`Using PSD.js mode for mockup generation`);
+          return generateMockupWithPsdJs(templatePath, designImagePath);
+        } else {
+          // Auto mode - try PSD.js first, fall back to Photopea if it fails
+          try {
+            console.log(`Trying PSD.js first for mockup generation`);
+            const mockupPath = await generateMockupWithPsdJs(templatePath, designImagePath);
+            return mockupPath;
+          } catch (psdError) {
+            console.error(`PSD.js approach failed: ${psdError.message}`);
+            console.log(`Falling back to Photopea for mockup generation`);
+            
+            try {
+              const mockupPath = await generateMockupWithPhotopea(templatePath, designImagePath);
+              return mockupPath;
+            } catch (photopeaError) {
+              console.error(`Photopea approach also failed: ${photopeaError.message}`);
+              console.log(`All PSD processing methods failed, using basic mockup`);
+              // If both methods fail, fall back to basic mockup
+              return generateBasicMockup(designImagePath, `${sku} mockup`);
+            }
+          }
+        }
+      }
+      
+      // Unknown template type, fall back to basic mockup
+      console.log(`Unsupported template type: ${templateType}, using basic mockup`);
+      return generateBasicMockup(designImagePath, `${sku} mockup`);
+    } else {
+      // No template available, generate a basic mockup
+      console.log(`No template available for ${sku}, generating basic mockup`);
+      return generateBasicMockup(designImagePath, `${sku} mockup`);
     }
-  });
+  } catch (error) {
+    console.error(`Failed to generate mockup: ${error.message}`);
+    throw error;
+  }
 }
 
 module.exports = {
   generateMockup,
+  generateMockupWithPsdJs,
+  generateMockupWithPhotopea,
+  generateMockupWithPngTemplate,
   generateBasicMockup
 };
