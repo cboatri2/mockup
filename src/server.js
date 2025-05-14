@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const { downloadDesignImage, cleanupFiles } = require("./downloader");
 const axios = require('axios');
+const puppeteer = require('puppeteer-core');
 
 // Import image processor (with PSD.js functionality)
 const imageProcessor = require("./image-processor");
@@ -219,6 +220,81 @@ app.get("/cors-test", (req, res) => {
     timestamp: new Date().toISOString(),
     headers: req.headers
   });
+});
+
+// Test Puppeteer and Photopea endpoint
+app.get("/test-photopea", async (req, res) => {
+  console.log('=== TESTING PUPPETEER WITH PHOTOPEA ===');
+  
+  try {
+    // Get Chrome executable path from environment variables
+    const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || 
+                       process.env.CHROMIUM_PATH || 
+                       CHROME_PATH;
+    
+    console.log('[Chrome Path]', chromePath);
+    
+    // Check if Chrome exists
+    const chromeExists = fs.existsSync(chromePath);
+    console.log('[Chrome Exists]', chromeExists);
+    
+    if (!chromeExists) {
+      return res.status(500).send(`❌ Chrome not found at path: ${chromePath}`);
+    }
+    
+    // Configure Puppeteer launch options
+    const launchOptions = {
+      headless: true,
+      executablePath: chromePath,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process',
+        '--no-zygote'
+      ]
+    };
+    
+    console.log('Launching browser with options:', JSON.stringify(launchOptions, null, 2));
+    
+    // Try to launch browser
+    const browser = await puppeteer.launch(launchOptions);
+    console.log('Browser launched successfully!');
+    
+    // Get browser version
+    const version = await browser.version();
+    console.log('Browser version:', version);
+    
+    // Create a new page
+    const page = await browser.newPage();
+    console.log('Page created successfully!');
+    
+    // Set a timeout for navigation
+    await page.setDefaultNavigationTimeout(30000);
+    
+    // Try navigating to Photopea
+    console.log('Navigating to Photopea...');
+    await page.goto('https://www.photopea.com', { waitUntil: 'domcontentloaded' });
+    console.log('Navigation to Photopea successful!');
+    
+    // Take a screenshot as proof
+    const screenshotPath = path.join(TEMP_DIR, `photopea-test-${Date.now()}.png`);
+    await page.screenshot({ path: screenshotPath });
+    console.log(`Screenshot saved to ${screenshotPath}`);
+    
+    // Close the browser
+    await browser.close();
+    console.log('Browser closed successfully!');
+    
+    // Send success response
+    res.status(200).send(`✅ Puppeteer launched and Photopea loaded successfully. Browser: ${version}`);
+  } catch (error) {
+    console.error('Error in Photopea test:', error);
+    
+    // Send error response
+    res.status(500).send(`❌ Puppeteer failed: ${error.message}`);
+  }
 });
 
 // Endpoint to serve mockup images directly
