@@ -1,5 +1,6 @@
 [build]
 builder = "nixpacks"
+nixpacksConfigPath = "nixpacks.toml"
 buildCommand = "npm run build"
 
 [deploy]
@@ -8,6 +9,9 @@ healthcheckPath = "/health"
 healthcheckTimeout = 100
 restartPolicyType = "always"
 restartPolicyMaxRetries = 10
+numReplicas = 1
 
 [variables]
-NODE_ENV = "production" 
+NODE_ENV = "production"
+NODE_OPTIONS = "--max-old-space-size=2048"
+PORT = "8080" 

@@ -10,6 +10,7 @@ const path = require('path');
 const sharp = require('sharp');
 const PSD = require('psd');
 const puppeteer = require('puppeteer');
+const { executablePath } = require('puppeteer');
 const { downloadDesignImage, cleanupFiles } = require('./downloader');
 
 // Templates directory
@@ -157,50 +158,25 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
   try {
     console.log('Launching Puppeteer for Photopea mockup generation...');
     
-    // Check for Chrome path in environment variables
-    const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROMIUM_PATH;
-    console.log(`Chrome path from env: ${chromePath}`);
-    
-    // Define possible Chrome paths for the Puppeteer Docker image
-    const possiblePaths = [
-      chromePath,
-      '/usr/bin/google-chrome-stable',
-      '/usr/bin/google-chrome',
-      '/usr/bin/chromium',
-      '/usr/bin/chromium-browser'
-    ].filter(Boolean); // Remove undefined/null entries
-    
-    // Try to find the first existing Chrome executable
-    let executablePath;
-    for (const path of possiblePaths) {
-      try {
-        if (fs.existsSync(path)) {
-          console.log(`Found Chrome executable at: ${path}`);
-          executablePath = path;
-          break;
-        } else {
-          console.log(`Chrome not found at: ${path}`);
-        }
-      } catch (err) {
-        console.log(`Error checking path ${path}: ${err.message}`);
-      }
-    }
+    // Use Puppeteer's executablePath helper to find Chrome/Chromium
+    const browserPath = executablePath();
+    console.log('[Chromium Path]', browserPath);
     
     // Configure Puppeteer launch options
     const launchOptions = {
       headless: true,
+      executablePath: browserPath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--no-zygote',
+        '--single-process',
+        '--disable-background-networking'
       ]
     };
-    
-    // Only set executablePath if found and not running in the Puppeteer Docker image
-    if (executablePath && !process.env.PUPPETEER_SKIP_DOWNLOAD) {
-      launchOptions.executablePath = executablePath;
-    }
     
     console.log('Launching browser with options:', JSON.stringify(launchOptions, null, 2));
     browser = await puppeteer.launch(launchOptions);
@@ -392,8 +368,13 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
     throw error;
   } finally {
     if (browser) {
-      await browser.close();
-      console.log('Puppeteer browser closed');
+      try {
+        console.log('Closing Puppeteer browser...');
+        await browser.close();
+        console.log('Puppeteer browser closed successfully');
+      } catch (closeError) {
+        console.error('Error closing browser:', closeError.message);
+      }
     }
   }
 }
