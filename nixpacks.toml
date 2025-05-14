@@ -22,3 +22,7 @@ nixPkgs = [
   "cairo",
   "gdk-pixbuf"
 ] 
+
+[phases.setup.env]
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
+CHROMIUM_PATH = "/nix/store/*/bin/chromium-browser" 
