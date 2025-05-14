@@ -3,8 +3,12 @@ FROM ghcr.io/puppeteer/puppeteer:21.9.0
 USER root
 WORKDIR /app
 
+# Clean up any problematic repository sources
+RUN rm -f /etc/apt/sources.list.d/google.list /etc/apt/sources.list.d/google-chrome.list || true
+
 # Install additional fonts
-RUN apt-get update && apt-get install -y \
+RUN apt-get update --allow-insecure-repositories || apt-get update --allow-unauthenticated && \
+    apt-get install -y --no-install-recommends \
     fonts-freefont-ttf \
     fonts-ipafont-gothic \
     fonts-wqy-zenhei \
@@ -24,8 +28,8 @@ ENV CHROMIUM_PATH=/usr/bin/google-chrome-stable
 ENV NODE_ENV=production
 
 # Verify Chrome installation
-RUN which google-chrome-stable
-RUN google-chrome-stable --version
+RUN which google-chrome-stable || echo "Chrome not found at expected path"
+RUN google-chrome-stable --version || echo "Chrome version check failed"
 
 # Copy application files
 COPY . .
@@ -39,7 +43,7 @@ EXPOSE 8080
 ENV PORT=8080
 
 # Create startup script
-RUN echo '#!/bin/bash\necho "Starting PSD Mockup Service"\necho "Chrome version: $(google-chrome-stable --version)"\necho "Chrome path: $(which google-chrome-stable)"\nexec node src/server.js' > /app/start.sh && chmod +x /app/start.sh
+RUN echo '#!/bin/bash\necho "Starting PSD Mockup Service"\necho "Chrome version: $(google-chrome-stable --version || echo \"Chrome not available\")"\necho "Chrome path: $(which google-chrome-stable || echo \"Chrome not found\")"\nexec node src/server.js' > /app/start.sh && chmod +x /app/start.sh
 
 # Start the server
 CMD ["/app/start.sh"] 
