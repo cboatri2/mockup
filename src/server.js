@@ -35,11 +35,17 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: ['https://topperswap-club.vercel.app', 'http://localhost:3000'],
-  methods: ['GET', 'POST'],
-  credentials: true
+  origin: '*', // Allow all origins
+  methods: ['GET', 'POST', 'OPTIONS'],
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
+
+// CORS preflight handler
+app.options('*', (req, res) => {
+  res.status(200).end();
+});
 
 // Health check endpoint
 app.get("/health", (req, res) => {
