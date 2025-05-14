@@ -9,7 +9,7 @@ nixPkgs = [
   "xorg.libxshmfence",
   "xorg.libxrandr",
   "xorg.libXcomposite",
-  "xorg.libxdamage",
+  "xorg.libXdamage",
   "xorg.libxfixes",
   "xorg.libxcb",
   "xorg.libxext",
