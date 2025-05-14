@@ -160,25 +160,38 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
     // Check for Chromium path in environment variable (set by Railway with Nixpacks)
     const chromiumPath = process.env.CHROMIUM_PATH;
     
-    if (chromiumPath) {
-      console.log(`Using Chromium at: ${chromiumPath}`);
-      
-      // Check if the executable exists
+    // Define possible Chromium paths for Railway environment
+    const possiblePaths = [
+      chromiumPath,
+      '/nix/store/chromium/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+      '/usr/lib/chromium/chromium',
+      '/usr/lib/chromium-browser/chromium-browser'
+    ].filter(Boolean); // Remove undefined/null entries
+    
+    // Try to find the first existing Chromium executable
+    let executablePath;
+    for (const path of possiblePaths) {
       try {
-        if (fs.existsSync(chromiumPath)) {
-          console.log('Chromium executable found');
-        } else {
-          console.warn(`Chromium executable not found at ${chromiumPath}`);
+        if (fs.existsSync(path)) {
+          console.log(`Found Chromium executable at: ${path}`);
+          executablePath = path;
+          break;
         }
-      } catch (error) {
-        console.warn(`Error checking Chromium path: ${error.message}`);
+      } catch (err) {
+        // Ignore errors checking paths
       }
+    }
+    
+    if (executablePath) {
+      console.log(`Using Chromium at: ${executablePath}`);
     } else {
-      console.log('Using bundled Chromium (no custom path provided)');
+      console.log('No Chromium executable found in standard locations, using bundled version');
     }
     
     // Configure Puppeteer launch options with Railway-specific settings
-    browser = await puppeteer.launch({
+    const launchOptions = {
       headless: true, // Use classic headless mode, not 'new'
       args: [
         '--no-sandbox',
@@ -188,10 +201,16 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
         '--disable-software-rasterizer',
         '--no-zygote',
         '--single-process'
-      ],
-      // Set executable path if provided in environment
-      executablePath: chromiumPath || undefined
-    });
+      ]
+    };
+    
+    // Only set executablePath if found
+    if (executablePath) {
+      launchOptions.executablePath = executablePath;
+    }
+    
+    console.log('Launching browser with options:', JSON.stringify(launchOptions, null, 2));
+    browser = await puppeteer.launch(launchOptions);
     
     console.log('Puppeteer launched successfully');
     
