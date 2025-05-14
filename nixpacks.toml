@@ -5,7 +5,7 @@ nixPkgs = [
   "fontconfig",
   "glib",
   "nss",
-  "alsaLib",
+  "alsa-lib",
   "xorg.libxshmfence",
   "xorg.libxrandr",
   "xorg.libxcomposite",
