@@ -25,21 +25,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-wqy-zenhei \
     fonts-thai-tlwg \
     fonts-kacst \
+    ca-certificates \
+    wget \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Verify Chromium installation
+RUN which chromium || echo "Chromium not found"
+RUN ls -la /usr/bin/chromium* || echo "No Chromium binaries found in /usr/bin/"
+
 # Set environment variables
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV CHROMIUM_PATH=/usr/bin/chromium
+ENV NODE_ENV=production
 
 # Copy application files
 COPY . .
 
 # Create temp directory for mockups
 RUN mkdir -p /app/temp && chmod 777 /app/temp
+RUN mkdir -p /app/assets/templates && chmod 777 /app/assets/templates
 
 # Expose the port
-EXPOSE 3001
+EXPOSE 8080
+ENV PORT=8080
+
+# Create startup script
+RUN echo '#!/bin/bash\necho "Starting PSD Mockup Service"\necho "Chromium path: $(which chromium)"\nnode src/server.js' > /app/start.sh && chmod +x /app/start.sh
 
 # Start the server
-CMD ["node", "src/server.js"] 
+CMD ["/app/start.sh"] 

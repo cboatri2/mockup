@@ -27,7 +27,7 @@ if (fs.existsSync(configPath)) {
 
 // Setup app
 const app = express();
-const PORT = process.env.PORT || config.serviceSettings?.port || 3000;
+const PORT = process.env.PORT || config.serviceSettings?.port || 3001;
 const BASE_URL = process.env.BASE_URL || config.serviceSettings?.baseUrl || `http://localhost:${PORT}`;
 const PUBLIC_PATH = process.env.PUBLIC_PATH || '/mockups';
 const IS_RAILWAY = process.env.RAILWAY_STATIC_URL || process.env.RAILWAY_SERVICE_NAME || false;
@@ -38,29 +38,27 @@ const PSD_TEMPLATE_URL = process.env.PSD_TEMPLATE_URL || config.templateSettings
 const DESIGN_PLACEHOLDER_NAME = process.env.DESIGN_PLACEHOLDER_NAME || config.templateSettings?.designPlaceholderName || 'Design';
 
 // Layer names to try when looking for the design placeholder layer
-const LAYER_NAMES = config.layerNames || ["Design", "YOUR DESIGN", "YOUR DESIGN HERE", "DESIGN", "DESIGN HERE", "place-design", "design-placeholder"];
+const LAYER_NAMES = config.layerNames || ["Design Placeholder", "Design", "YOUR DESIGN", "YOUR DESIGN HERE", "DESIGN", "DESIGN HERE", "place-design", "design-placeholder"];
 
 // Check for Chromium path (used by Puppeteer)
-const CHROMIUM_PATH = process.env.CHROMIUM_PATH || '/nix/store/chromium/bin/chromium';
+const CHROMIUM_PATH = process.env.CHROMIUM_PATH || process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium';
 
-// Enable debug logging
-const DEBUG = process.env.DEBUG === 'true' || config.debug === true;
+// Enable debug logging by default on Railway for troubleshooting
+const DEBUG = IS_RAILWAY || process.env.DEBUG === 'true' || config.debug === true;
 
-// Log configuration for debugging
-if (DEBUG) {
-  console.log('Configuration:', {
-    useRemoteTemplates: USE_REMOTE_TEMPLATES,
-    psdTemplateUrl: PSD_TEMPLATE_URL,
-    designPlaceholderName: DESIGN_PLACEHOLDER_NAME,
-    layerNames: LAYER_NAMES,
-    corsOrigin: process.env.CORS_ORIGIN || config.corsSettings?.allowedOrigins || '*',
-    baseUrl: BASE_URL,
-    isRailway: IS_RAILWAY,
-    chromiumPath: CHROMIUM_PATH,
-    nodePath: process.execPath,
-    nodeVersion: process.version
-  });
-}
+// Log configuration for debugging - always show in Railway
+console.log('Configuration:', {
+  useRemoteTemplates: USE_REMOTE_TEMPLATES,
+  psdTemplateUrl: PSD_TEMPLATE_URL,
+  designPlaceholderName: DESIGN_PLACEHOLDER_NAME,
+  layerNames: LAYER_NAMES,
+  corsOrigin: process.env.CORS_ORIGIN || config.corsSettings?.allowedOrigins || '*',
+  baseUrl: BASE_URL,
+  isRailway: IS_RAILWAY,
+  chromiumPath: CHROMIUM_PATH,
+  nodePath: process.execPath,
+  nodeVersion: process.version
+});
 
 // Define template and temp directories
 const TEMPLATES_DIR = path.join(__dirname, '..', 'assets', 'templates');

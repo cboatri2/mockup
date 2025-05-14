@@ -158,14 +158,14 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
     console.log('Launching Puppeteer for Photopea mockup generation...');
     
     // Check for Chromium path in environment variable (set by Railway with Nixpacks)
-    const chromiumPath = process.env.CHROMIUM_PATH;
+    const chromiumPath = process.env.CHROMIUM_PATH || process.env.PUPPETEER_EXECUTABLE_PATH;
+    console.log(`Chromium path from env: ${chromiumPath}`);
     
     // Define possible Chromium paths for Railway environment
     const possiblePaths = [
       chromiumPath,
-      '/nix/store/chromium/bin/chromium',
-      '/usr/bin/chromium-browser',
       '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
       '/usr/lib/chromium/chromium',
       '/usr/lib/chromium-browser/chromium-browser'
     ].filter(Boolean); // Remove undefined/null entries
@@ -178,21 +178,33 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
           console.log(`Found Chromium executable at: ${path}`);
           executablePath = path;
           break;
+        } else {
+          console.log(`Chromium not found at: ${path}`);
         }
       } catch (err) {
-        // Ignore errors checking paths
+        console.log(`Error checking path ${path}: ${err.message}`);
       }
+    }
+    
+    // Get list of files in /usr/bin to help with debugging
+    try {
+      if (fs.existsSync('/usr/bin')) {
+        const files = fs.readdirSync('/usr/bin').filter(f => f.includes('chrom'));
+        console.log(`Chrome-related binaries in /usr/bin:`, files);
+      }
+    } catch (err) {
+      console.log(`Error listing /usr/bin: ${err.message}`);
     }
     
     if (executablePath) {
       console.log(`Using Chromium at: ${executablePath}`);
     } else {
-      console.log('No Chromium executable found in standard locations, using bundled version');
+      console.log('No Chromium executable found in standard locations, trying to launch without specifying path');
     }
     
     // Configure Puppeteer launch options with Railway-specific settings
     const launchOptions = {
-      headless: true, // Use classic headless mode, not 'new'
+      headless: 'new', // Use new headless mode if available
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
