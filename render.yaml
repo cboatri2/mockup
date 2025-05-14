@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: psd-mockup-service
+    env: node
+    repo: https://github.com/cboatri2/mockup.git
+    branch: main
+    buildCommand: npm install
+    startCommand: node src/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        sync: false
+      - key: BASE_URL
+        value: https://psd-mockup-service.onrender.com
+      - key: CORS_ORIGIN
+        value: '*'
+      - key: NODE_ENV
+        value: production
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: true
+      - key: CHROMIUM_PATH
+        value: /usr/bin/chromium-browser
+      - key: DESIGN_PLACEHOLDER_NAME
+        value: 'Design Placeholder' 
