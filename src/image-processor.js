@@ -151,6 +151,10 @@ async function generateMockupWithPngTemplate(templatePath, designImagePath) {
 async function generateMockupWithPhotopea(templatePath, designImagePath, designLayerName = DESIGN_PLACEHOLDER_NAME) {
   let browser = null;
   
+  console.log('=== PUPPETEER TEST START ===');
+  console.log('OS Platform:', process.platform);
+  console.log('Node Version:', process.version);
+  
   // Helper function for delays (instead of page.waitFor/waitForTimeout)
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   
@@ -163,6 +167,7 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
                       '/usr/bin/google-chrome-stable';
     
     console.log('[Chrome Path]', chromePath);
+    console.log('[Chrome Exists]', require('fs').existsSync(chromePath));
     
     // Configure Puppeteer launch options
     const launchOptions = {
@@ -179,9 +184,19 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
     };
     
     console.log('Launching browser with options:', JSON.stringify(launchOptions, null, 2));
-    browser = await puppeteer.launch(launchOptions);
     
-    console.log('Puppeteer launched successfully');
+    try {
+      browser = await puppeteer.launch(launchOptions);
+      console.log('Puppeteer launched successfully!');
+      
+      // Output browser version info
+      const version = await browser.version();
+      console.log('Browser Version:', version);
+    } catch (launchError) {
+      console.error('Browser launch failed:', launchError.message);
+      console.error(launchError.stack);
+      throw launchError;
+    }
     
     const page = await browser.newPage();
     
