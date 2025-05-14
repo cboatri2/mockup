@@ -33,16 +33,9 @@ function ensureDirectoriesExist() {
 // Initialize app
 const app = express();
 
-// Middleware
-app.use(cors({
-  origin: '*', // Allow all origins
-  methods: ['GET', 'POST', 'OPTIONS'],
-  credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// Middleware - simplified CORS setup
+app.use(cors());
 app.use(express.json());
-
-// No need for explicit options handler - the cors middleware handles this
 
 // Health check endpoint
 app.get("/health", (req, res) => {
@@ -57,7 +50,6 @@ app.get("/cors-test", (req, res) => {
   res.json({
     success: true,
     message: "CORS is working correctly",
-    headers: req.headers,
     timestamp: new Date().toISOString()
   });
 });
