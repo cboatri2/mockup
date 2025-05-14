@@ -82,13 +82,56 @@ if (!fs.existsSync(TEMP_DIR)) {
 const corsOrigin = process.env.CORS_ORIGIN || (config.corsSettings?.allowedOrigins ? config.corsSettings.allowedOrigins : '*');
 console.log(`CORS Origin: ${corsOrigin}`);
 
-// Basic middleware
-app.use(cors({
-  origin: corsOrigin,
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// Define CORS configuration
+const corsConfig = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, etc)
+    if (!origin) return callback(null, true);
+    
+    // Parse the allowed origins from config or environment
+    let allowedOrigins = [];
+    
+    if (typeof corsOrigin === 'string') {
+      if (corsOrigin === '*') {
+        return callback(null, true); // Allow all origins
+      } else {
+        allowedOrigins = [corsOrigin]; // Single origin
+      }
+    } else if (Array.isArray(corsOrigin)) {
+      allowedOrigins = corsOrigin; // Array of origins
+    } else if (config.corsSettings?.allowedOrigins) {
+      allowedOrigins = config.corsSettings.allowedOrigins; // From config
+    }
+    
+    // Check if the origin is allowed
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      console.log(`CORS blocked request from: ${origin}`);
+      console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+      
+      // In debug mode, allow all origins for easier testing
+      if (DEBUG) {
+        console.log('DEBUG mode: Allowing origin despite not being in allowlist');
+        return callback(null, true);
+      }
+      
+      // Don't include error details in production
+      return callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept'],
+  credentials: true,
+  maxAge: 86400 // 24 hours
+};
+
+// Apply CORS middleware
+app.use(cors(corsConfig));
 app.use(express.json());
+
+// Add preflight handling
+app.options('*', cors(corsConfig));
 
 /**
  * Find the best template for a given SKU
@@ -297,24 +340,147 @@ app.get("/test-photopea", async (req, res) => {
   }
 });
 
+// Test Puppeteer browser launch and basic operations
+app.get("/test-browser", async (req, res) => {
+  console.log('=== BROWSER TEST START ===');
+  
+  try {
+    // Get Chrome executable path from environment variables
+    const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || 
+                       process.env.CHROMIUM_PATH || 
+                       CHROME_PATH;
+    
+    console.log('[Chrome Path]', chromePath);
+    
+    // Check if Chrome exists
+    const chromeExists = fs.existsSync(chromePath);
+    console.log('[Chrome Exists]', chromeExists);
+    
+    if (!chromeExists) {
+      return res.status(500).send(`❌ Chrome not found at path: ${chromePath}`);
+    }
+    
+    // Configure Puppeteer launch options - match exactly what the image processor uses
+    const launchOptions = {
+      headless: true,
+      executablePath: chromePath,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process',
+        '--no-zygote'
+      ]
+    };
+    
+    console.log('Launching browser with options:', JSON.stringify(launchOptions, null, 2));
+    
+    // Try to launch browser
+    const browser = await puppeteer.launch(launchOptions);
+    console.log('Browser launched successfully!');
+    
+    // Get browser version
+    const version = await browser.version();
+    console.log('Browser version:', version);
+    
+    // Create a new page
+    const page = await browser.newPage();
+    console.log('Page created successfully!');
+    
+    // Set a timeout for navigation
+    await page.setDefaultNavigationTimeout(30000);
+    
+    // Try navigating to a test page
+    console.log('Navigating to example.com...');
+    await page.goto('https://example.com', { waitUntil: 'domcontentloaded' });
+    console.log('Navigation to example.com successful!');
+    
+    // Take a screenshot as proof
+    const screenshotPath = path.join(TEMP_DIR, `browser-test-${Date.now()}.png`);
+    await page.screenshot({ path: screenshotPath });
+    console.log(`Screenshot saved to ${screenshotPath}`);
+    
+    // Get page title as further verification
+    const title = await page.title();
+    console.log(`Page title: ${title}`);
+    
+    // Try evaluating JavaScript
+    const jsTest = await page.evaluate(() => {
+      return {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        language: navigator.language
+      };
+    });
+    
+    console.log('JavaScript evaluation successful:', jsTest);
+    
+    // Close the browser
+    await browser.close();
+    console.log('Browser closed successfully!');
+    console.log('=== BROWSER TEST END ===');
+    
+    // Create a screenshot URL for verification
+    const screenshotUrl = `${BASE_URL}${PUBLIC_PATH}/${path.basename(screenshotPath)}`;
+    
+    // Send success response
+    res.status(200).send(`
+      ✅ Puppeteer browser test successful!
+      
+      Browser: ${version}
+      Page Title: ${title}
+      User Agent: ${jsTest.userAgent}
+      Platform: ${jsTest.platform}
+      
+      Screenshot: <a href="${screenshotUrl}" target="_blank">${screenshotUrl}</a>
+    `);
+  } catch (error) {
+    console.error('Error in browser test:', error);
+    console.error(error.stack || 'No stack trace available');
+    console.log('=== BROWSER TEST FAILED ===');
+    
+    // Send detailed error response
+    res.status(500).send(`
+      ❌ Puppeteer browser test failed!
+      
+      Error: ${error.message}
+      
+      Details:
+      Chrome Path: ${process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROMIUM_PATH || CHROME_PATH}
+      Chrome Exists: ${fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROMIUM_PATH || CHROME_PATH)}
+      Node Version: ${process.version}
+      Platform: ${process.platform}
+    `);
+  }
+});
+
 // Endpoint to serve mockup images directly
 app.use('/mockups', express.static(TEMP_DIR));
 
 // Mockup generation with advanced functionality
 app.post("/render-mockup", async (req, res) => {
+  console.log('=== RENDER MOCKUP REQUEST START ===');
+  console.log('Request IP:', req.ip);
+  console.log('Request Origin:', req.get('origin'));
+  
+  // Track timing for performance diagnostics
+  const startTime = Date.now();
+  
   try {
     const { designId, sku, imageUrl, mode } = req.body;
     
-    if (DEBUG) {
-      console.log('Mockup request received:', {
-        designId,
-        sku,
-        imageUrl: imageUrl ? (imageUrl.substring(0, 50) + '...') : undefined,
-        mode
-      });
-    }
+    // Log the request but mask part of the image URL for privacy
+    console.log('Mockup request received:', {
+      designId,
+      sku,
+      imageUrl: imageUrl ? `${imageUrl.substring(0, 50)}...` : undefined,
+      mode,
+      timestamp: new Date().toISOString()
+    });
     
     if (!designId || !sku || !imageUrl) {
+      console.error('Missing required fields in request');
       return res.status(400).json({ 
         success: false, 
         error: "Missing required fields: designId, sku, imageUrl" 
@@ -323,7 +489,7 @@ app.post("/render-mockup", async (req, res) => {
     
     // Determine processing mode (default to 'auto')
     const processingMode = mode || 'auto';
-    console.log(`Mockup request: design=${designId}, sku=${sku}, mode=${processingMode}, image=${imageUrl}`);
+    console.log(`Mockup request: design=${designId}, sku=${sku}, mode=${processingMode}`);
     
     // Find the best template for this SKU
     const templatePath = await findTemplateForSku(sku);
@@ -331,7 +497,7 @@ app.post("/render-mockup", async (req, res) => {
     if (templatePath) {
       console.log(`Found template for SKU ${sku}: ${templatePath}`);
     } else {
-      console.log(`No template found for SKU: ${sku}`);
+      console.log(`No template found for SKU: ${sku}, using fallback`);
     }
     
     // Create a unique temp directory for this job
@@ -345,6 +511,7 @@ app.post("/render-mockup", async (req, res) => {
     // First, try to download the design image
     let designImagePath;
     try {
+      console.log(`Downloading design image from: ${imageUrl.substring(0, 50)}...`);
       designImagePath = await downloadDesignImage(imageUrl, jobDir);
       console.log(`Design image downloaded to: ${designImagePath}`);
     } catch (downloadError) {
@@ -367,39 +534,56 @@ app.post("/render-mockup", async (req, res) => {
       methodUsed: null,
       fallbackUsed: false,
       environment: IS_RAILWAY ? 'railway' : 'local',
-      chromePath: CHROME_PATH
+      chromePath: CHROME_PATH,
+      requestTime: new Date().toISOString(),
+      requestOrigin: req.get('origin'),
+      processingTimeMs: 0
     };
     
-    if (DEBUG) {
-      console.log('Processing status before mockup generation:', processingStatus);
-      console.log('Design layer names to try:', LAYER_NAMES);
-    }
+    console.log('Processing status before mockup generation:', processingStatus);
+    console.log('Design layer names to try:', LAYER_NAMES);
     
     // Generate mockup using the appropriate method based on template type
     try {
       // Try to use each potential layer name in order until one works
       let mockupError = null;
+      console.log(`Beginning mockup generation with ${LAYER_NAMES.length} potential layer names`);
+      
       for (const layerName of LAYER_NAMES) {
         try {
           console.log(`Attempting mockup generation with layer name: ${layerName}`);
-          mockupPath = await imageProcessor.generateMockup({
+          
+          // Timeout for mockup generation (3 minutes)
+          const timeoutMs = 3 * 60 * 1000;
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error(`Mockup generation timed out after ${timeoutMs}ms`)), timeoutMs)
+          );
+          
+          // Actual mockup generation
+          const mockupPromise = imageProcessor.generateMockup({
             templatePath,
             designImagePath,
             designId,
             sku,
-            mode: processingMode,
+            mode: processingMode, 
             designLayerName: layerName,
             debug: DEBUG,
             chromePath: CHROME_PATH
           });
+          
+          // Race between timeout and mockup generation
+          mockupPath = await Promise.race([mockupPromise, timeoutPromise]);
           
           // If we reach here, the mockup was generated successfully
           console.log(`Mockup generated successfully with layer name: ${layerName}`);
           mockupError = null;
           break;
         } catch (error) {
-          console.log(`Layer name ${layerName} failed: ${error.message}`);
+          console.log(`Layer name "${layerName}" failed: ${error.message}`);
           mockupError = error;
+          
+          // Short delay before trying next layer name
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
       
@@ -431,6 +615,7 @@ app.post("/render-mockup", async (req, res) => {
       
       // If all mockup generation methods fail, fall back to basic mockup
       try {
+        console.log('All methods failed, falling back to basic mockup generation');
         mockupPath = await imageProcessor.generateBasicMockup(designImagePath, `${sku} mockup`);
         console.log(`Fallback basic mockup generated at: ${mockupPath}`);
         
@@ -439,6 +624,8 @@ app.post("/render-mockup", async (req, res) => {
         processingStatus.error = mockupError.message;
       } catch (fallbackError) {
         console.error(`Even basic mockup failed: ${fallbackError.message}`);
+        
+        // If even the basic mockup fails, return the original image
         return res.json({
           success: false,
           error: `Mockup generation failed: ${mockupError.message}`,
@@ -460,6 +647,13 @@ app.post("/render-mockup", async (req, res) => {
       console.error(`Error during cleanup: ${cleanupError.message}`);
     }
     
+    // Calculate processing time
+    processingStatus.processingTimeMs = Date.now() - startTime;
+    
+    console.log(`Mockup generation completed in ${processingStatus.processingTimeMs}ms`);
+    console.log(`Mockup URL: ${mockupUrl}`);
+    console.log('=== RENDER MOCKUP REQUEST END ===');
+    
     return res.json({
       success: true,
       mockupUrl,
@@ -470,11 +664,19 @@ app.post("/render-mockup", async (req, res) => {
     });
     
   } catch (error) {
-    console.error("Error:", error);
+    console.error("Error in render-mockup endpoint:", error);
+    console.error(error.stack || 'No stack trace available');
+    
+    // Calculate processing time
+    const processingTimeMs = Date.now() - startTime;
+    console.log(`Request failed after ${processingTimeMs}ms`);
+    console.log('=== RENDER MOCKUP REQUEST FAILED ===');
+    
     res.status(200).json({ 
       success: false, 
       error: error.message || "Error processing request",
-      mockupUrl: req.body?.imageUrl || null
+      mockupUrl: req.body?.imageUrl || null,
+      processingTimeMs
     });
   }
 });

@@ -151,9 +151,12 @@ async function generateMockupWithPngTemplate(templatePath, designImagePath) {
 async function generateMockupWithPhotopea(templatePath, designImagePath, designLayerName = DESIGN_PLACEHOLDER_NAME) {
   let browser = null;
   
-  console.log('=== PUPPETEER TEST START ===');
+  console.log('=== PHOTOPEA MOCKUP GENERATION START ===');
   console.log('OS Platform:', process.platform);
   console.log('Node Version:', process.version);
+  console.log('Template Path:', templatePath);
+  console.log('Design Image Path:', designImagePath);
+  console.log('Target Layer Name:', designLayerName);
   
   // Helper function for delays (instead of page.waitFor/waitForTimeout)
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -241,140 +244,212 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
     
     console.log('Photopea loaded successfully. Opening PSD template...');
     
-    // Read the PSD template
+    // Read the PSD template and design image
     const psdFile = fs.readFileSync(templatePath);
-    const psdBase64 = psdFile.toString('base64');
-    
-    // Load the PSD template using Photopea's API
-    await page.evaluate((psdBase64) => {
-      const binary = atob(psdBase64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      window.app.open(bytes.buffer);
-    }, psdBase64);
-    
-    // Wait for PSD to load
-    await delay(5000);
-    
-    // Check if document is open
-    const documentOpen = await page.evaluate(() => {
-      return window.app.activeDocument !== null;
-    });
-    
-    if (!documentOpen) {
-      throw new Error('Failed to open PSD in Photopea');
-    }
-    
-    // Find design layer
-    console.log(`Looking for design layer: ${designLayerName}`);
-    const layerFound = await page.evaluate((layerName) => {
-      function findLayer(layers, name) {
-        for (let i = 0; i < layers.length; i++) {
-          if (layers[i].name === name) return layers[i];
-          if (layers[i].layers) {
-            const found = findLayer(layers[i].layers, name);
-            if (found) return found;
-          }
-        }
-        return null;
-      }
-      
-      try {
-        const layers = window.app.activeDocument.layers;
-        const layer = findLayer(layers, layerName);
-        
-        if (layer) {
-          window.app.activeDocument.activeLayer = layer;
-          return true;
-        }
-        return false;
-      } catch (e) {
-        console.error('Error finding layer:', e);
-        return false;
-      }
-    }, designLayerName);
-    
-    if (!layerFound) {
-      throw new Error(`Design layer "${designLayerName}" not found in PSD`);
-    }
-    
-    console.log('Design layer found, loading design image...');
-    
-    // Read the design image
     const designFile = fs.readFileSync(designImagePath);
+    
+    // Convert files to base64
+    const psdBase64 = psdFile.toString('base64');
     const designBase64 = designFile.toString('base64');
     
-    // Load design image into Photopea
-    await page.evaluate((designBase64) => {
-      const binary = atob(designBase64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      window.app.open(bytes.buffer);
-    }, designBase64);
+    console.log(`PSD size: ${psdFile.length} bytes, Design size: ${designFile.length} bytes`);
     
-    // Wait for design to load
-    await delay(3000);
+    // Log template information
+    console.log('Template details:', {
+      path: templatePath,
+      size: psdFile.length,
+      type: path.extname(templatePath)
+    });
     
-    // Process the design
-    console.log('Compositing design into template...');
-    const success = await page.evaluate(() => {
+    console.log('Design image details:', {
+      path: designImagePath,
+      size: designFile.length,
+      type: path.extname(designImagePath)
+    });
+    
+    // Create a more robust Photopea script that loads the template and design in one operation
+    console.log('Preparing Photopea script for execution...');
+    
+    const photopeaScript = await page.evaluate((psdBase64, designBase64, designLayerName) => {
       try {
-        if (window.app.documents.length < 2) {
-          return false;
+        console.log("Starting Photopea script execution");
+        
+        // Helper function to convert base64 to binary array buffer
+        function base64ToArrayBuffer(base64) {
+          const binaryString = window.atob(base64);
+          const len = binaryString.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          return bytes.buffer;
         }
         
-        // Design document (second one opened)
-        const designDoc = window.app.documents[1];
-        designDoc.activate();
+        // Function to find a layer by name (including nested layers)
+        function findLayerByName(layers, name) {
+          console.log(`Searching for layer: "${name}" in ${layers.length} layers`);
+          // First try exact match (case-sensitive)
+          for (let i = 0; i < layers.length; i++) {
+            if (layers[i].name === name) {
+              console.log(`Found exact match for layer: ${name}`);
+              return layers[i];
+            }
+            
+            // Check nested layers if this is a group
+            if (layers[i].layers && layers[i].layers.length > 0) {
+              const nestedResult = findLayerByName(layers[i].layers, name);
+              if (nestedResult) return nestedResult;
+            }
+          }
+          
+          // If no exact match, try case-insensitive
+          const lowerName = name.toLowerCase();
+          for (let i = 0; i < layers.length; i++) {
+            if (layers[i].name.toLowerCase() === lowerName) {
+              console.log(`Found case-insensitive match for layer: ${name}`);
+              return layers[i];
+            }
+            
+            // Check nested layers if this is a group
+            if (layers[i].layers && layers[i].layers.length > 0) {
+              const nestedResult = findLayerByName(layers[i].layers, name);
+              if (nestedResult) return nestedResult;
+            }
+          }
+          
+          // If still no match, try contains
+          for (let i = 0; i < layers.length; i++) {
+            if (layers[i].name.toLowerCase().includes(lowerName)) {
+              console.log(`Found partial match for layer: ${name} -> ${layers[i].name}`);
+              return layers[i];
+            }
+            
+            // Check nested layers if this is a group
+            if (layers[i].layers && layers[i].layers.length > 0) {
+              const nestedResult = findLayerByName(layers[i].layers, name);
+              if (nestedResult) return nestedResult;
+            }
+          }
+          
+          console.log(`No matching layer found for: ${name}`);
+          return null;
+        }
         
-        // Select everything in the design
-        window.app.activeDocument.selection.selectAll();
-        window.app.activeDocument.selection.copy();
+        // Convert base64 strings to array buffers
+        const psdBuffer = base64ToArrayBuffer(psdBase64);
+        const designBuffer = base64ToArrayBuffer(designBase64);
+        
+        // Load the PSD template
+        console.log("Loading PSD template...");
+        const psdDoc = app.open(psdBuffer);
+        
+        if (!psdDoc) {
+          console.error("Failed to open PSD template");
+          return { success: false, error: "Failed to open PSD template" };
+        }
+        
+        console.log("PSD loaded successfully");
+        
+        // Log layer structure for debugging
+        const allLayers = psdDoc.layers;
+        console.log(`PSD has ${allLayers.length} top-level layers`);
+        
+        // Print layer names for debugging
+        function printLayerNames(layers, prefix = '') {
+          for (let i = 0; i < layers.length; i++) {
+            console.log(`${prefix}Layer ${i+1}: "${layers[i].name}"`);
+            if (layers[i].layers && layers[i].layers.length > 0) {
+              printLayerNames(layers[i].layers, prefix + '  ');
+            }
+          }
+        }
+        
+        printLayerNames(allLayers);
+        
+        // Find the design placeholder layer
+        const designLayer = findLayerByName(allLayers, designLayerName);
+        
+        if (!designLayer) {
+          console.error(`Could not find design layer with name: ${designLayerName}`);
+          return { 
+            success: false, 
+            error: `Design layer "${designLayerName}" not found`,
+            layerNames: allLayers.map(l => l.name).join(', ')
+          };
+        }
+        
+        console.log(`Found design layer: ${designLayer.name}`);
+        
+        // Load the design image in a new document
+        console.log("Loading design image...");
+        const designDoc = app.open(designBuffer);
+        
+        if (!designDoc) {
+          console.error("Failed to open design image");
+          return { success: false, error: "Failed to open design image" };
+        }
+        
+        console.log("Design image loaded successfully");
+        
+        // Select all in the design document
+        designDoc.activate();
+        app.activeDocument.selection.selectAll();
+        
+        // Copy the design
+        console.log("Copying design...");
+        app.activeDocument.selection.copy();
         
         // Close the design document without saving
-        window.app.activeDocument.close(false);
+        app.activeDocument.close(false);
         
-        // Go back to the template document
-        window.app.documents[0].activate();
+        // Activate the PSD template document
+        psdDoc.activate();
         
-        // Paste into the active layer (target layer that was selected earlier)
-        window.app.activeDocument.paste();
+        // Select the design layer
+        app.activeDocument.activeLayer = designLayer;
         
-        return true;
-      } catch (e) {
-        console.error('Error processing design:', e);
-        return false;
+        // Paste into the active layer
+        console.log("Pasting design into template...");
+        app.activeDocument.paste();
+        
+        // Flatten the image (after ensuring the design is properly inserted)
+        console.log("Flattening image...");
+        app.activeDocument.flatten();
+        
+        // Export as PNG
+        console.log("Exporting as PNG...");
+        const pngData = app.activeDocument.saveToBase64("png");
+        
+        return { 
+          success: true, 
+          png: pngData,
+          message: "Mockup generated successfully" 
+        };
+      } catch (err) {
+        console.error("Error in Photopea script:", err);
+        return { 
+          success: false, 
+          error: err.message || "Unknown error in Photopea script" 
+        };
       }
-    });
+    }, psdBase64, designBase64, designLayerName);
     
-    if (!success) {
-      throw new Error('Failed to composite design into template');
+    console.log('Photopea script execution completed:', photopeaScript.success ? 'SUCCESS' : 'FAILED');
+    
+    if (!photopeaScript.success) {
+      console.error('Photopea script error:', photopeaScript.error);
+      throw new Error(`Photopea script failed: ${photopeaScript.error}`);
     }
     
-    // Export the mockup as PNG
-    console.log('Exporting mockup...');
+    if (!photopeaScript.png) {
+      throw new Error('Photopea did not return PNG data');
+    }
+    
+    // Generate output file path
     const outputPath = path.join(TEMP_DIR, `mockup-${Date.now()}.png`);
     
-    const pngBase64 = await page.evaluate(() => {
-      try {
-        // Export as PNG using Photopea's API
-        return window.app.activeDocument.saveToBase64('png');
-      } catch (e) {
-        console.error('Error exporting PNG:', e);
-        return null;
-      }
-    });
-    
-    if (!pngBase64) {
-      throw new Error('Failed to export mockup from Photopea');
-    }
-    
     // Write PNG file from base64
-    fs.writeFileSync(outputPath, Buffer.from(pngBase64, 'base64'));
+    fs.writeFileSync(outputPath, Buffer.from(photopeaScript.png, 'base64'));
     
     console.log(`Mockup exported to: ${outputPath}`);
     return outputPath;
@@ -391,6 +466,7 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
         console.error('Error closing browser:', closeError.message);
       }
     }
+    console.log('=== PHOTOPEA MOCKUP GENERATION END ===');
   }
 }
 
