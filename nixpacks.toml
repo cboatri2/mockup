@@ -25,4 +25,14 @@ nixPkgs = [
 
 [phases.setup.env]
 PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
-CHROMIUM_PATH = "/nix/store/*/bin/chromium-browser" 
+
+[phases.build]
+cmds = [
+  "echo 'Finding Chromium path...'",
+  "CHROME_PATH=$(which chromium 2>/dev/null || which chromium-browser 2>/dev/null || find /nix/store -name chromium-browser -o -name chromium | head -n 1 2>/dev/null)",
+  "echo \"Found Chrome at: $CHROME_PATH\"",
+  "echo \"export CHROMIUM_PATH=$CHROME_PATH\" >> ~/.bashrc"
+]
+
+[start]
+cmd = "node src/server.js" 
