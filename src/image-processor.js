@@ -228,18 +228,91 @@ async function generateMockupWithPhotopea(templatePath, designImagePath, designL
     
     // Wait for Photopea to load
     console.log('Waiting for Photopea to initialize...');
-    await page.waitForSelector('#appload', { hidden: true, timeout: 30000 });
+    try {
+      await page.waitForSelector('#appload', { 
+        hidden: true, 
+        timeout: 60000 // More generous timeout (60 seconds)
+      });
+      console.log('Loading indicator hidden, waiting for app to be ready...');
+    } catch (timeoutError) {
+      console.error('Timeout waiting for Photopea loading indicator to disappear:', timeoutError.message);
+      // Continue anyway, since sometimes the loader disappears very quickly
+    }
     
-    // Wait for app to be available
-    await delay(3000);
+    // Wait more time for app to be fully available
+    await delay(5000);
     
-    // Check if app is available
+    // More reliable app detection
     const appAvailable = await page.evaluate(() => {
-      return window.app && typeof window.app.open === 'function';
+      // Check multiple indicators that Photopea is loaded
+      if (!window.app) {
+        console.log('window.app is not defined');
+        return false;
+      }
+      
+      if (typeof window.app.open !== 'function') {
+        console.log('window.app.open is not a function');
+        return false;
+      }
+      
+      if (typeof window.app.activeDocument !== 'undefined') {
+        console.log('app.activeDocument already exists, which suggests Photopea is ready');
+        return true;
+      }
+      
+      // Additional checks
+      const readyIndicators = [
+        typeof window.app.echoToOE === 'function',
+        typeof window.app.addMenuItem === 'function',
+        typeof window.PSD !== 'undefined'
+      ];
+      
+      console.log('Photopea ready indicators:', readyIndicators);
+      
+      // Return true if most checks pass
+      return readyIndicators.filter(Boolean).length >= 2;
     });
     
     if (!appAvailable) {
-      throw new Error('Photopea app not available after loading');
+      // Try a reload and wait again
+      console.log('Photopea app not detected on first try, attempting to reload...');
+      await page.reload({ waitUntil: 'networkidle2', timeout: 60000 });
+      
+      // Wait for loading indicator again
+      try {
+        await page.waitForSelector('#appload', { hidden: true, timeout: 60000 });
+        console.log('Loading indicator hidden after reload, waiting for app to be ready...');
+      } catch (timeoutError) {
+        console.error('Timeout waiting for Photopea loading indicator after reload:', timeoutError.message);
+      }
+      
+      // Wait for app to be available after reload
+      await delay(8000);
+      
+      // Check again
+      const appAvailableAfterReload = await page.evaluate(() => {
+        if (!window.app) {
+          console.log('window.app is still not defined after reload');
+          return false;
+        }
+        
+        if (typeof window.app.open !== 'function') {
+          console.log('window.app.open is still not a function after reload');
+          return false;
+        }
+        
+        console.log('After reload: app.open exists =', typeof window.app.open === 'function');
+        return window.app && typeof window.app.open === 'function';
+      });
+      
+      if (!appAvailableAfterReload) {
+        console.error('Photopea app not available even after reload');
+        throw new Error('Photopea app not available after reloading');
+      }
+      
+      console.log('Photopea app available after reload');
+    } else {
+      console.log('Photopea loaded successfully on first attempt');
     }
     
     console.log('Photopea loaded successfully. Opening PSD template...');
